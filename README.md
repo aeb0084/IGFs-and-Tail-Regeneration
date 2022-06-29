@@ -30,11 +30,8 @@ R Markdown HTML Output         | Output file produced from R Markdown Statistica
 
 ## Supplementary Materials: 
 
-
-Image of phylogenetic tree produced from the [Dendrogram for Phylogeny](amniota_2.txt). This image was used to create plot3ID CSV file and produce Figure 1 in BioRender.
-
-<img src="Amniota_tree.jpeg" width="600">
-
+<img src="Supplemental Fig. (1).png" width="600">
+Supplemental Figure 1: 
 
 
 ## Statistical Code:
