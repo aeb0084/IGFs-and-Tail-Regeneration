@@ -24,8 +24,6 @@ Tail Length Loss Analysis      | File used to assess effects of length loss duri
 R Markdown Statistical Code    | File containing all statistical code and figure production code        | [R Markdown Code](Regeneration.Diet.IGFs_currated_data.Rmd)
 R Markdown HTML Output         | Output file produced from R Markdown Statistical Code    | [R Markdown Output](Regeneration.Diet.IGFs_Final_currated_data.html)
 
-## Project Summary: 
-> 
 
 ## Supplementary Materials: 
 
