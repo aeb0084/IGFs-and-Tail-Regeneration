@@ -35,43 +35,80 @@ Supplemental Figure 1:
 
 ## Statistical Code:
 
-EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the code file titled [Quantitative Analysis R Code](CrossSpecGraph_Final.Rmd) in an R Markdown format. The code output displays all statistical models, results, and figures produced in either [PDF](CrossSpecGraph_Final.pdf) or [HTML](CrossSpecGraph_Final.html) format. Note, you will have to download the HTML file to visualize the data output. 
+EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the code file titled [R Markdown Code](Regeneration.Diet.IGFs_currated_data.Rmd). The code output displays all statistical models, results, and figures produced in [HTML](Regeneration.Diet.IGFs_Final_currated_data.html) format. Note, you will have to download the HTML file to visualize the data output. 
 
-Examples of required packages, statistical models, and plots used can be seen below. Note: These are generalized examples produced for ease of adaptation.  Files containing RNAseq Analysis [code](q.down_trim_map_Carnivora.sh), Parsing Counts and merging metadata [code](MergingCounts_toMetadata_2021-06-10.R), and all Statistical Analysis/Visualization [code](CrossSpecGraph_Final.Rmd) contains the specific models used for publication.
+Examples of required packages, statistical models, and plots used can be seen below. Note: These are generalized examples produced for ease of adaptation.  
 
-```ruby
-#Required Packages
-library(tidyverse)
-library(viridis)
-library(Rmisc)
+```{ruby}
+#load all packages necessary to run statistical and graphic models
 library(ggplot2)
 library(nlme)
-library(arsenal)
-library(janitor)
-library(ggforce)
-library(ggalt)
+library(multcomp)
+library(emmeans)
+library(MuMIn)
+library(bestNormalize)
+library(lmtest)
+library(car)
+library(Rmisc)
 library(dplyr)
-library(ggalt)
-library(ggforce)
-
-#Linear Mixed Models
-#Run linear model comparing variable of interest across time, including Content as a random effect variable to account for triplicate replication in qPCR runs.
-model=(lme(Dependent_Variable~Independent_Variable, data=dat, na.action=na.omit, random=~1|Content))
-#Run an anova output to display F-values and P-values
-anova(model)
-#Run summary output to obtain Estimates, Confidence Intervals and p-values
-summary(model)
-
-
-#Graph patterns using ggplot2 package
-plot=ggplot(data=dat, aes(x=Independent_Variable, y=Dependent_Variable, fill=GeneTarger)) + geom_violin(trim=F, position=dodge, scale="width") + 
- geom_boxplot(width=0.15, position= dodge, outlier.shape = NA, color="black") +
- geom_point(data = Independent_Variable, size =2, shape = 19, color="black", position=position_dodge(width=0.6)) +
- geom_point(position=position_jitterdodge(jitter.width = 0.05, dodge.width = 0.6), size=1, alpha=0.5, aes(group= GeneTarget),   color="white") + 
-    theme_bw() +
-  xlab('x_IndependentVariable_Title') +
-  ylab('y_DependentVariable_Title')
+library(viridis)
+library(hrbrthemes)
+library(plotly)
 ```
 
+### Effect of Diet Restriction Statistical Analysis 
+```{ruby}
+diet.reg=subset(early_reg, Treatment == "DR" | Treatment == "AdLib")
+anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
+anova(lme(Eggs~ Treatment, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
+
+#get week by week comparisons
+w1=subset(diet.reg, Week == "1")
+w2=subset(diet.reg, Week == "2")
+w3=subset(diet.reg, Week == "3")
+w4=subset(diet.reg, Week == "4")
+
+anova(lm(Perc.Regeneration~ Treatment, data=w2, na.action=na.omit))
+anova(lm(Perc.Regeneration~ Treatment, data=w3, na.action=na.omit))
+anova(lm(Perc.Regeneration~ Treatment, data=w4, na.action=na.omit))
+
+diet.reg.av=Rmisc::summarySE(data=diet.reg, measurevar="Perc.Regeneration", groupvars=c("Week", "Treatment"), na.rm=T, conf.interval=0.95)
+
+diet.reg.pl=ggplot(diet.reg.av, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+    geom_area(position = "identity", alpha=0.02, size=2) +
+    geom_jitter(data=diet.reg, alpha=0.9, size=0.5) +
+      scale_color_manual(values = c("slategrey", "lemonchiffon2")) +
+        scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +
+      ggtitle("Effect of Diet Restriction") +
+    theme_ipsum() +
+        theme(legend.position="top") 
 
 
+diet.reg.pl
+
+
+ggsave(diet.reg.pl, file="diet.reg.pl.png", height=6, width=4, dpi = 300)
+```
+### Effect of IGF Injection Statistical Analysis 
+```{ruby}
+inj.reg=subset(early_reg, Treatment != "AdLib")
+anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=inj.reg, na.action=na.omit))
+
+inj.reg.average=Rmisc::summarySE(data=inj.reg, measurevar="Perc.Regeneration", groupvars=c("Week","Treatment"), na.rm=T, conf.interval=0.95)
+
+
+inj.reg.pl=ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+       geom_area(position = "identity", alpha=0.02, size=2 ) +
+    geom_jitter(data=inj.reg, alpha=0.9, size=0.5) +
+      scale_color_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+        scale_fill_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+    ggtitle("Effect of Supplemental IGF Injection") +
+    theme_ipsum() +
+        theme(legend.position="top",
+              plot.title = element_text(size=14)) 
+
+
+inj.reg.pl
+
+ggsave(inj.reg.pl, file="inj.reg.pl.png", height=6, width=4, dpi = 300)
+```
