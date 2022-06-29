@@ -37,7 +37,7 @@ EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the 
 
 Examples of required packages, statistical models, and plots used can be seen below. Note: These are generalized examples produced for ease of adaptation.  
 
-```{ruby}
+```ruby
 #load all packages necessary to run statistical and graphic models
 library(ggplot2)
 library(nlme)
@@ -55,7 +55,7 @@ library(plotly)
 ```
 
 ### Effect of Diet Restriction Statistical Analysis 
-```{ruby}
+```ruby
 diet.reg=subset(early_reg, Treatment == "DR" | Treatment == "AdLib")
 anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
 anova(lme(Eggs~ Treatment, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
@@ -88,7 +88,7 @@ diet.reg.pl
 ggsave(diet.reg.pl, file="diet.reg.pl.png", height=6, width=4, dpi = 300)
 ```
 ### Effect of IGF Injection Statistical Analysis 
-```{ruby}
+```ruby
 inj.reg=subset(early_reg, Treatment != "AdLib")
 anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=inj.reg, na.action=na.omit))
 
