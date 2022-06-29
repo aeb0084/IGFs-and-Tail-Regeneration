@@ -18,10 +18,10 @@ DOI: TBD
 Analysis and File Names| Brief Description | File Download
 -------------------------------------|------------------------------------ | -----------------------------------------------------
 Weight Loss Analysis           | File used to determine effectiveness of restricted diet | [Weight Loss Analysis](WL.analysis.csv)
-Final Longitudinal Data Set    | File used in statistical analysis to determine effect of IGF and diet on regeneration | [Final Longitudinal Data(R.analysis.currated.csc)
+Final Longitudinal Data Set    | File used in statistical analysis to determine effect of IGF and diet on regeneration | [Final Longitudinal Data (R.analysis.currated.csv)
 Pre-Diet Body Size Analysis    | File used to ensure no biases were present during treatment allocation | [Pre-Diet Body Size](Pre.Diet.Measures.csv)
 Tail Length Loss Analysis      | File used to assess effects of length loss during experimental period  | [Tail Length Loss](LengthLossAnalysis.csv)
-R Markdown Statistical Code    | File containing all statistical code and figure production code        | [R Markdown Code](Regeneration.Diet.IGFs_currated_data.Rmd)
+R Markdown Statistical Code    | File containing all statistical code and figure production code        | [R Markdown Code](Regeneration.Diet.IGFs_Final_currated_data.Rmd)
 R Markdown HTML Output         | Output file produced from R Markdown Statistical Code    | [R Markdown Output](Regeneration.Diet.IGFs_Final_currated_data.html)
 
 
