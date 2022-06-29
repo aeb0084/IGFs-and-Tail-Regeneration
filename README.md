@@ -33,7 +33,7 @@ Supplemental Figure 1:
 
 ## Statistical Code:
 
-EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the code file titled [R Markdown Code](Regeneration.Diet.IGFs_currated_data.Rmd). The code output displays all statistical models, results, and figures produced in [HTML](Regeneration.Diet.IGFs_Final_currated_data.html) format. Note, you will have to download the HTML file to visualize the data output. 
+EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the code file titled [R Markdown Code](Regeneration.Diet.IGFs_Final_currated_data.Rmd). The code output displays all statistical models, results, and figures produced in [HTML](Regeneration.Diet.IGFs_Final_currated_data.html) format. Note, you will have to download the HTML file to visualize the data output. 
 
 Examples of required packages, statistical models, and plots used can be seen below. Note: These are generalized examples produced for ease of adaptation.  
 
