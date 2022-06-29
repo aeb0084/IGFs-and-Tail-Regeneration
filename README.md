@@ -1,8 +1,8 @@
 # Effects of Dietary Restriction and Insulin-Like Growth Factors on Brown Anole Tail Regeneration 
  
- Alexis Lindsey, Abby Beatty, Tonia S. Schwartz*
+ Alexis Lindsey, Abby Beatty, Tonia S. Schwartz**
  
-* Corresponding Author: tschwartz@auburn.edu 
+** Corresponding Author: tschwartz@auburn.edu 
 
 This repository holds all supplemental files for "Effects of Dietary Restriction and Insulin-Like Growth Factors on Brown Anole Tail Regeneration".
 
