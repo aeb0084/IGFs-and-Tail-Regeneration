@@ -1,0 +1,316 @@
+---
+title: "Regeneration.Diet.IGFs"
+author: "Abby Beatty"
+date: "July 27, 2020"
+output: html_document
+---
+
+
+# Load Packages
+```{r, warning=F, message=F}
+#load all packages necessary to run statistical and graphic models
+library(ggplot2)
+library(nlme)
+library(multcomp)
+library(emmeans)
+library(MuMIn)
+library(bestNormalize)
+library(lmtest)
+library(car)
+library(Rmisc)
+library(dplyr)
+library(viridis)
+library(hrbrthemes)
+library(plotly)
+
+#Set position dodge location for categorized boxplot graphs and data point locations
+pd <- position_dodge(0.02)
+dodge <- position_dodge(width = 0.6)
+
+```
+
+
+
+# Part 1: Pre-experimental body size comparisons
+## Make sure there are no differences in body size between treatments before starting the experiment
+```{r, warning=F}
+#Read in data set that includes the SVL, mass, and treatment assignment of each individual immediately before beginning the experiment
+pre.diet=read.csv("Pre.Diet.Measures.csv")
+
+#Run linear model to determine if there was a statistical difference in SVL at the time of beginning the experiment
+SVL=lm(SVL~Treatment, data=pre.diet)
+#print linear model results
+anova(SVL)
+
+
+#plot the relationship of SVL across treatments
+svl.pl=ggplot(pre.diet, aes(x=as.factor(Treatment), y=SVL, fill=Treatment)) +
+    #violin plot displays the density of data at each point displaying the mix and max of each treatment as well
+    geom_violin(trim=F, position= dodge, scale="width") +
+scale_fill_manual(values = c("slategrey", "lemonchiffon2", "thistle4", "mistyrose3")) +  #insert boxplot overlay displaying the quantiles and means of each group
+  geom_boxplot(width=0.1, position= dodge, outlier.shape = NA) +
+  geom_jitter(width=0.1) +
+  xlab("Treatment")
+
+svl.pl
+
+ggsave(svl.pl, file="svl.png", width=5, height=4, dpi=600)
+
+```
+
+>Result: There was no statistical difference in body size in SVL at the beginning of the experimental period between treatments.
+
+```{r, warning=F}
+
+#Run linear model to determine if there was a statistical difference in SVL at the time of beginning the experiment
+Mass=lm(Mass~Treatment, data=pre.diet)
+#print linear model results
+anova(Mass)
+
+
+#Plot the relationship of SVL across treatments
+mass.pl=ggplot(pre.diet, aes(x=as.factor(Treatment), y=Mass, fill=Treatment)) + 
+     #violin plot displays the density of data at each point displaying the mix and max of each treatment as well
+    geom_violin(trim=F, position= dodge, scale="width") +
+scale_fill_manual(values = c("slategrey", "lemonchiffon2", "thistle4", "mistyrose3")) +  geom_boxplot(width=0.1, position= dodge, outlier.shape = NA) +
+  geom_jitter(width=0.1) +
+  xlab("Treatment")
+
+ggsave(mass.pl, file="mass.png", width=5, height=4, dpi=600)
+
+```
+
+>Result: There was no statistical difference in body size in mass at the beginning of the experimental period between treatments.
+
+# Part 2: Assess weight lost post-diet implementation
+## Weight Loss post-diet implementation but before beginning the experiment
+```{r, warning=F}
+#Read in data set include the body measurements (mass) over time before and after diet implementation. This data set is designed to verify that the diet did result in weight loss in the DR group, and that weight loss levels off before the experiment begins. We do not want to begin the experiment with some animals actively losing weight at a high rate, and others not.
+diet=read.csv("WL.analysis.csv")
+
+#Subset data to be only the data collected immediately before the experiment begins (week -1). 
+diet.an=subset(diet, Week == -1)
+#Run linear model determining if the group on a diet lost more weight than the group on the ad lib food 
+diet.lm=lm(Perc_WL~Diet, data=diet.an)
+#print the results
+anova(diet.lm)
+
+#Plot the relationship of percent weight loss between the two groups (diet restricted and ad lib)
+diet.pl=ggplot(diet.an, aes(x=as.factor(Diet), y=Perc_Orig, fill=Diet)) + 
+     #violin plot displays the density of data at each point displaying the mix and max of each treatment as well
+    geom_violin(trim=F, position= dodge, scale="width") +
+scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +    #insert boxplot overlay displaying the quantiles and means of each group
+  geom_boxplot(width=0.1, position= dodge, outlier.shape = NA) +
+geom_jitter(width=0.1) +
+  xlab("Diet")
+
+ggsave(diet.pl, file="diet.png", width=5, height=4, dpi=600)
+
+diet.pl
+
+  
+```
+
+>Result: The animals on a restricted diet lost significantly more of their body weight than those from the ad lib diet. This indicates that the diet was effective at calorically restricting the animals. The animals on the ad lib diet lost <5% of their total body weight on average, indicating that the ad lib diet was truly ad lib.
+
+```{r, warning=F}
+#Plot the relationship of percent weight loss between the two groups (diet restricted and ad lib) over time
+diet2.pl=ggplot(diet, aes(x=as.factor(Week), y=Mass, fill=Diet)) + 
+     #violin plot displays the density of data at each point displaying the mix and max of each treatment as well
+    geom_violin(trim=F, position= dodge, scale="width", width=0.5) +
+scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +    #insert boxplot overlay displaying the quantiles and means of each group
+  geom_boxplot(width=0.1, position= dodge, outlier.shape = NA) +
+geom_jitter(position= dodge) +
+  xlab("Week")
+
+ggsave(diet2.pl, file="diet2.png", width=5, height=4, dpi=600)
+
+#plot this relationship as a line graph
+diet2.pl=ggplot(diet, aes(x=Week, y=Mass, colour=Diet)) + 
+  geom_smooth() +
+    scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
+
+diet3.pl=ggplot(diet, aes(x=(Week), y=Perc_WL, colour=Diet)) + 
+  geom_smooth() +
+    scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
+
+diet4.pl=ggplot(diet, aes(x=(Week), y=Perc_Orig, colour=Diet)) + 
+  geom_smooth() +
+    scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
+
+ggsave(diet4.pl, file="diet4.png", width=4.75, height=4, dpi=600)
+
+diet2.pl
+diet3.pl
+diet4.pl
+
+```
+
+>Result: There was weight fluctuation in the early week, but the weight loss had tapered off by the beginning of the experiment and steadied.
+
+# Part 3: Unedited Generalized Visualization of Data
+## Overall visualization of data
+
+
+```{r, warning=F}
+
+#upload raw data set in long format with all 8 weeks of regeneration, reproduction, and weight data following the acclimation period.
+reg=read.csv("R.analysis.currated.csv")
+
+#The primary data set used in analysis will be weeks 1-4. We chose this because our previous study (Beatty, Mote and Schwartz 2020) shows that nearly all investment into regeneration occurs in the first four weeks of regeneration. Additionally, the study was performed late in the season, as reproduction tapered off, and there were issues with measurements, COVID, and feeding during the end of the experiment.
+early_reg=subset(reg, Week < 5)
+```
+
+## Outlier analysis and analysis of reduction in regeneration data points
+
+```{r, warning=F}
+
+#Length Loss Analysis
+
+ll=read.csv("LengthLossAnalysis.csv")
+ll_sub=subset(ll, Week>2)
+
+pl.ll=ggplot(ll, aes(x=Week, y=Regeneration, colour=Animal_ID)) +
+  geom_line(aes(group = Animal_ID)) +
+    facet_wrap(~Treatment, scales="free", ncol=2) +
+  geom_text(aes(label=Animal_ID),hjust=0, vjust=0, size=2)+
+  theme(legend.position = "none")
+  
+pl.ll
+
+ggsave(pl.ll, file="length_loss.png", width=8, height=8, dpi=600)
+
+pl.ll.sub=ggplot(ll_sub, aes(x=Week, y=Regeneration, colour=Animal_ID)) +
+  geom_line(aes(group = Animal_ID)) +
+    facet_wrap(~Treatment, scales="free", ncol=2) +
+    geom_text(aes(label=Animal_ID),hjust=0, vjust=0, size=2)+
+  theme(legend.position = "none")
+
+ggsave(pl.ll.sub, file="length_loss_sub.png", width=8, height=8, dpi=600)
+
+```
+>Result: There are clear inconsistencies following the 4 week timepoint. Beginning at week 5, there were points in time where there were decreases in regeneration length (meaning tail length was lost). Therefore, we decided to zoom in to the first four weeks of time. Additionally, this decision is supported by the Beatty, Mote, Schwartz Regeneration paper indicating the majority of investment into tail regeneration occurs during the first 4 weeks of tail regeneration. There were no additional inconsistencies in the tail regeneration patterns within the first 4 weeks.
+
+```{r}
+
+pl.reg.rate=ggplot(early_reg, aes(x=Week, y=Rate_Reg, colour=Animal_ID)) +
+  geom_line(aes(group = Animal_ID)) +
+    facet_wrap(~Treatment, scales="free", ncol=2) +
+  geom_text(aes(label=Animal_ID),hjust=0, vjust=0, size=2)+
+  theme(legend.position = "none")
+  
+pl.reg.rate
+
+
+
+pl.perc.reg=ggplot(early_reg, aes(x=Week, y=Perc.Regeneration, colour=Animal_ID)) +
+  geom_line(aes(group = Animal_ID)) +
+    facet_wrap(~Treatment, scales="free", ncol=2) +
+  geom_text(aes(label=Animal_ID),hjust=0, vjust=0, size=2)+
+  theme(legend.position = "none")
+  
+pl.perc.reg
+```
+
+>Result: Analyses were previously completed using the rate of tail regeneration rather than the regenerative length. This showed that there was a large spike in regenerative investment between weeks 2 and 3, which then decreased significantly again by week 4 (also consistant with our previous findings). This was the case for nearly all individials regardless of treatment assignment. The validation of regeneration using this metric was a sanity check. For analyses, percent regneration is used, as it accounts for differences in total amount needed to regenerate, and possible variations in body size of the animals (volume of tissue needed to regenerate varies between animal).
+
+```{r}
+
+outlierTest(lm(Rate_Reg~ Treatment*Week, random=~1|Animal_ID , data=early_reg, na.action=na.omit))
+
+outlierTest(lm(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=early_reg, na.action=na.omit))
+
+```
+
+>Result: When using percent regeneration, BC333 and BC335 at week 4 are statistical outliers. These are the two highest individuals in the ad lib group. Additionally, in the IGF2 group individual BC337 is labeled as an outlier at week 4. Using the corrected p-values, the rate of regeneration does not have any statistical outliers. These samples did not have any questionable data, and followed reliable trends indicating that they are statistical outliers, but biologically accurate. The individual of concern (BC327) was not indicated as an outlier in either test. Therefore, no data points were excluded as data points.
+>Again, regeneration within the first 4 weeks appears to be consistent across individuals and a reliable measure for analysis.
+
+## Preliminary reproduction analysis:
+>Plot of total reproduction by time to justify sperm storage and reference our other regeneration paper. This is another way to test the seasonal effects in our dataset as well. NOTE: we did not reliably collect eggs during the acclimation period, so we cannot produce a plot that includes that data.
+
+```{r, warning=F}
+
+ggplot(reg, aes(x = factor(Week), y = Eggs, group=Treatment, color=Treatment)) + 
+  geom_line(stat = "summary", fun = "mean", position="dodge", size=2)
+
+repro.pl=ggplot(reg, aes(x = factor(Week), y = Eggs, group=Treatment, color=Treatment)) + 
+  geom_line(stat = "summary", fun = "sum", position="dodge", size=2) +
+  scale_color_manual(values = c("slategrey", "lemonchiffon2", "thistle4", "mistyrose3")) +
+      theme_ipsum() 
+
+repro.pl
+
+ggsave(repro.pl, file="reproduction.png", width=4, height=4, dpi=600)
+
+
+```
+
+>There is alot of variation in regeneration over the time period. Whether you are looking at the average number of eggs, or the sum of egg production between treatments, there is a spike at week 2 in all treatments except for IGF2. Then they all decreased to zero for week 3, with the exception of IGF2. The patterns remain inconsistent through week 8. Should we include egg production in the model? I dont think we should because the total is so low, personally.
+  
+## RQ1- Does restricted diet decrease regeneration rate?
+#Analysis 2. Does a restricted diet decrease rate of tail regeneration.
+>rate~treatment*week + rand (ID) using the adlib and vehicle groups only, as both were given saline. 
+>repro~treatment: using the sum of all individuals across all 8 weeks for reproduction. Do this ONLY if reproduction was important in the preliminary analysis (looking for seasonal effects).
+
+```{r, warning=F}
+diet.reg=subset(early_reg, Treatment == "DR" | Treatment == "AdLib")
+anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
+anova(lme(Eggs~ Treatment, random=~1|Animal_ID , data=diet.reg, na.action=na.omit))
+
+#get week by week comparisons
+w1=subset(diet.reg, Week == "1")
+w2=subset(diet.reg, Week == "2")
+w3=subset(diet.reg, Week == "3")
+w4=subset(diet.reg, Week == "4")
+
+anova(lm(Perc.Regeneration~ Treatment, data=w2, na.action=na.omit))
+anova(lm(Perc.Regeneration~ Treatment, data=w3, na.action=na.omit))
+anova(lm(Perc.Regeneration~ Treatment, data=w4, na.action=na.omit))
+
+
+
+diet.reg.av=Rmisc::summarySE(data=diet.reg, measurevar="Perc.Regeneration", groupvars=c("Week", "Treatment"), na.rm=T, conf.interval=0.95)
+
+diet.reg.pl=ggplot(diet.reg.av, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+    geom_area(position = "identity", alpha=0.02, size=2) +
+    geom_jitter(data=diet.reg, alpha=0.9, size=0.5) +
+      scale_color_manual(values = c("slategrey", "lemonchiffon2")) +
+        scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +
+      ggtitle("Effect of Diet Restriction") +
+    theme_ipsum() +
+        theme(legend.position="top") 
+
+
+diet.reg.pl
+
+
+ggsave(diet.reg.pl, file="diet.reg.pl.png", height=6, width=4, dpi = 300)
+```
+
+## RQ2-Does IGF injection increase regeneration rate?
+#Analysis 3. Does Increasing levels of IGF1 or IGF2 will increase the rate of tail regeneration
+>rate~treat*week + rand(ID) using the saline, IGF1, and IGF2 groups. Consider making density plots. Then complete emmeans pairwise analyses between treatments at each week.
+
+```{r, warning=F}
+inj.reg=subset(early_reg, Treatment != "AdLib")
+anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=inj.reg, na.action=na.omit))
+
+inj.reg.average=Rmisc::summarySE(data=inj.reg, measurevar="Perc.Regeneration", groupvars=c("Week","Treatment"), na.rm=T, conf.interval=0.95)
+
+
+inj.reg.pl=ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+       geom_area(position = "identity", alpha=0.02, size=2 ) +
+    geom_jitter(data=inj.reg, alpha=0.9, size=0.5) +
+      scale_color_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+        scale_fill_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+    ggtitle("Effect of Supplemental IGF Injection") +
+    theme_ipsum() +
+        theme(legend.position="top",
+              plot.title = element_text(size=14)) 
+
+
+inj.reg.pl
+
+ggsave(inj.reg.pl, file="inj.reg.pl.png", height=6, width=4, dpi = 300)
+
+```
