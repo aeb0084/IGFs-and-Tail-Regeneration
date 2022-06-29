@@ -17,7 +17,6 @@ DOI: TBD
 ### Quick Key to File Directory: Detailed descriptions of file use can be found below.
 Analysis and File Names| Brief Description | File Download
 -------------------------------------|------------------------------------ | -----------------------------------------------------
-CATEGORY TITLE                   
 Weight Loss Analysis           | File used to determine effectiveness of restricted diet | [Weight Loss Analysis](WL.analysis.csv)
 Final Longitudinal Data Set    | File used in statistical analysis to determine effect of IGF and diet on regeneration | [Final Longitudinal Data](R.analysis.currated.csc)
 Pre-Diet Body Size Analysis    | File used to ensure no biases were present during treatment allocation | [Pre-Diet Body Size](Pre.Diet.Measures.csv)
@@ -30,7 +29,7 @@ R Markdown HTML Output         | Output file produced from R Markdown Statistica
 
 ## Supplementary Materials: 
 
-<img src="Supplemental Fig. (1).png" width="1000">
+<img src="Supplemental Fig. (2).png" width="1000">
 Supplemental Figure 1: 
 
 
