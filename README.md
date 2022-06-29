@@ -30,7 +30,7 @@ R Markdown HTML Output         | Output file produced from R Markdown Statistica
 
 ## Supplementary Materials: 
 
-<img src="Supplemental Fig. (1).png" width="600">
+<img src="Supplemental Fig. (1).png" width="1000">
 Supplemental Figure 1: 
 
 
