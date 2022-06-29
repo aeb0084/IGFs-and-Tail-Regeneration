@@ -35,12 +35,9 @@ Image of phylogenetic tree produced from the [Dendrogram for Phylogeny](amniota_
 
 <img src="Amniota_tree.jpeg" width="600">
 
-<img src="Table_S1.jpg" width="1200">
-
-<img src="Table_S2.jpg" width="1200">
 
 
-## Example Code:
+## Statistical Code:
 
 EXAMPLE: The statistical analyses were performed in R (version 4.0.3) using the code file titled [Quantitative Analysis R Code](CrossSpecGraph_Final.Rmd) in an R Markdown format. The code output displays all statistical models, results, and figures produced in either [PDF](CrossSpecGraph_Final.pdf) or [HTML](CrossSpecGraph_Final.html) format. Note, you will have to download the HTML file to visualize the data output. 
 
