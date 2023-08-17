@@ -271,20 +271,18 @@ anova(lm(Perc.Regeneration~ Treatment, data=w4, na.action=na.omit))
 
 diet.reg.av=Rmisc::summarySE(data=diet.reg, measurevar="Perc.Regeneration", groupvars=c("Week", "Treatment"), na.rm=T, conf.interval=0.95)
 
-diet.reg.pl=ggplot(diet.reg.av, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
-    geom_area(position = "identity", alpha=0.02, size=2) +
-    geom_jitter(data=diet.reg, alpha=0.9, size=0.5) +
-      scale_color_manual(values = c("slategrey", "lemonchiffon2")) +
-        scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +
-      ggtitle("Effect of Diet Restriction") +
-    theme_ipsum() +
-        theme(legend.position="top") 
 
+
+diet.reg.pl=ggplot(diet.reg, aes(x=Week, y=Perc.Regeneration, color=Treatment)) + 
+  geom_smooth(linewidth=2) +
+      scale_color_manual(values = c("slategrey", "lemonchiffon2")) +
+        theme(legend.position="top") +
+    ylim(0,16) 
 
 diet.reg.pl
 
 
-ggsave(diet.reg.pl, file="diet.reg.pl.png", height=6, width=4, dpi = 300)
+ggsave(diet.reg.pl, file="diet.reg.pl.png", height=4, width=4, dpi = 300)
 ```
 
 ## RQ2-Does IGF injection increase regeneration rate?
@@ -297,8 +295,49 @@ anova(lme(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=inj.reg,
 
 inj.reg.average=Rmisc::summarySE(data=inj.reg, measurevar="Perc.Regeneration", groupvars=c("Week","Treatment"), na.rm=T, conf.interval=0.95)
 
+inj.reg.pl=ggplot(inj.reg, aes(x=Week, y=Perc.Regeneration, color=Treatment)) +  
+    geom_smooth(linewidth=2) +
+     # geom_jitter(data=inj.reg, alpha=1, size=0.5) +
+      scale_color_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+        theme(legend.position="top") +
+    ylim(0,16) 
 
-inj.reg.pl=ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+inj.reg.pl
+
+ggsave(inj.reg.pl, file="inj.reg.pl.png", height=4, width=4, dpi = 300)
+
+```
+
+## Additional Plot Types
+```{r}
+ggplot(diet.reg,aes(x=as.factor(Week), y=Perc.Regeneration, fill=Treatment)) + 
+  geom_boxplot()  + 
+      scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +
+          theme(legend.position="top") +
+  facet_wrap(.~Week, nrow=1, scales="free") +
+  ylim(0,35)
+
+ggplot(inj.reg,aes(x=as.factor(Week), y=Perc.Regeneration, fill=Treatment)) + 
+  geom_boxplot()  + 
+      scale_fill_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
+          theme(legend.position="top") +
+  facet_wrap(.~Week, nrow=1, scales="free") +
+  ylim(0,30)
+```
+
+## Print alternative view of results
+```{r, print=F, evaluate=F, results=F}
+
+ggplot(diet.reg.av, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
+    geom_area(position = "identity", alpha=0.02, size=2) +
+    geom_jitter(data=diet.reg, alpha=0.9, size=0.5) +
+      scale_color_manual(values = c("slategrey", "lemonchiffon2")) +
+        scale_fill_manual(values = c("slategrey", "lemonchiffon2")) +
+      ggtitle("Effect of Diet Restriction") +
+    theme_ipsum() +
+        theme(legend.position="top") 
+
+ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=Treatment)) +
        geom_area(position = "identity", alpha=0.02, size=2 ) +
     geom_jitter(data=inj.reg, alpha=0.9, size=0.5) +
       scale_color_manual(values = c("lemonchiffon2", "thistle4", "mistyrose3")) +
@@ -306,11 +345,5 @@ inj.reg.pl=ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatm
     ggtitle("Effect of Supplemental IGF Injection") +
     theme_ipsum() +
         theme(legend.position="top",
-              plot.title = element_text(size=14)) 
-
-
-inj.reg.pl
-
-ggsave(inj.reg.pl, file="inj.reg.pl.png", height=6, width=4, dpi = 300)
-
+              plot.title = element_text(size=14))
 ```
