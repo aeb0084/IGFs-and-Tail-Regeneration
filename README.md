@@ -23,10 +23,6 @@ R Markdown Statistical Code    | File containing all statistical code and figure
 R Markdown HTML Output         | Output file produced from R Markdown Statistical Code    | [R Markdown Output](Regeneration.Diet.IGFs_Final_currated_data.html)
 
 
-## Supplementary Materials: 
-
-<img src="Supplemental Fig. (2).png" width="1000">
-Supplemental Figure 1: 
 
 
 ## Statistical Code:
