@@ -33,6 +33,11 @@ Examples of required packages, statistical models, and plots used can be seen be
 
 ```ruby
 #load all packages necessary to run statistical and graphic models
+
+if (!requireNamespace("hrbrthemes", quietly = TRUE)) {
+  remotes::install_github("hrbrmstr/hrbrthemes")
+}
+
 library(ggplot2)
 library(nlme)
 library(multcomp)
