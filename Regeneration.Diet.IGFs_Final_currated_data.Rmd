@@ -9,6 +9,10 @@ output: html_document
 # Load Packages
 ```{r, warning=F, message=F}
 #load all packages necessary to run statistical and graphic models
+if (!requireNamespace("hrbrthemes", quietly = TRUE)) {
+  remotes::install_github("hrbrmstr/hrbrthemes")
+}
+
 library(ggplot2)
 library(nlme)
 library(multcomp)
@@ -130,11 +134,11 @@ diet2.pl=ggplot(diet, aes(x=Week, y=Mass, colour=Diet)) +
   geom_smooth() +
     scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
 
-diet3.pl=ggplot(diet, aes(x=(Week), y=Perc_WL, colour=Diet)) + 
+diet3.pl=ggplot(diet, aes(x=Week, y=Perc_WL, colour=Diet)) + 
   geom_smooth() +
     scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
 
-diet4.pl=ggplot(diet, aes(x=(Week), y=Perc_Orig, colour=Diet)) + 
+diet4.pl=ggplot(diet, aes(x=Week, y=Perc_Orig, colour=Diet)) + 
   geom_smooth() +
     scale_color_manual(values = c("slategrey", "lemonchiffon2")) 
 
@@ -216,9 +220,9 @@ pl.perc.reg
 
 ```{r}
 
-outlierTest(lm(Rate_Reg~ Treatment*Week, random=~1|Animal_ID , data=early_reg, na.action=na.omit))
+outlierTest(lm(Rate_Reg~ Treatment*Week, data=early_reg, na.action=na.omit))
 
-outlierTest(lm(Perc.Regeneration~ Treatment*Week, random=~1|Animal_ID , data=early_reg, na.action=na.omit))
+outlierTest(lm(Perc.Regeneration~ Treatment*Week, data=early_reg, na.action=na.omit))
 
 ```
 
@@ -347,3 +351,4 @@ ggplot(inj.reg.average, aes(x=Week, y=Perc.Regeneration, color=Treatment, fill=T
         theme(legend.position="top",
               plot.title = element_text(size=14))
 ```
+
