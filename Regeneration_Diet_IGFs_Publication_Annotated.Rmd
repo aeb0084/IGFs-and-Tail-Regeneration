@@ -1,0 +1,1698 @@
+---
+title: "Effects of Dietary Restriction and Insulin-Like Growth Factor Supplementation on Lizard Tail Regeneration"
+date: "2026-07-26"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  error = FALSE,
+  fig.align = "center",
+  fig.retina = 2
+)
+```
+
+# Study Overview
+
+The objective of this study was to determine whether energetic state constrains tail regeneration in adult female brown anoles (*Anolis sagrei*) and whether supplementation with insulin-like growth factor 1 (IGF1) or insulin-like growth factor 2 (IGF2) modifies this relationship.
+
+- Energetic state was quantified as percent body mass loss and analyzed as a continuous predictor of regenerative performance.
+- The primary response variable was cumulative percent tail regeneration measured weekly over eight weeks following tail autotomy.
+- Secondary analyses evaluated absolute regenerated tail length and weekly regeneration rate.
+- Linear mixed-effects models included animal identity as a random effect to account for repeated measurements.
+
+The analysis proceeds in the same order as the manuscript:
+
+1. Verify successful randomization and dietary manipulation.
+2. Establish the relationship between energetic state and regeneration.
+3. Test whether IGF supplementation modifies that relationship.
+4. Evaluate robustness, alternative response variables, dose effects, and late-stage observations.
+5. Generate publication figures and supporting outputs.
+
+# 1. Reproducibility Setup
+
+## 1.1 Load packages
+
+```{r packages}
+# Data manipulation
+library(dplyr)
+library(tidyr)
+
+# Statistical modeling
+library(lme4)
+library(nlme)
+library(car)
+library(lmtest)
+library(MuMIn)
+library(bestNormalize)
+library(multcomp)
+library(emmeans)
+library(performance)
+
+# Model predictions and summaries
+library(ggeffects)
+library(Rmisc)
+
+# Visualization
+library(ggplot2)
+library(patchwork)
+library(plotly)
+library(viridis)
+library(hrbrthemes)
+
+# Reproducible random-number generation for bootstrap analyses
+set.seed(123)
+```
+
+## 1.2 Shared plotting objects and color palettes
+
+```{r plot-settings}
+# Position adjustments used in several figures
+pd <- position_dodge(0.02)
+dodge <- position_dodge(width = 0.6)
+
+# Treatment colors used throughout the analysis
+treatment_colors <- c(
+  "AdLib"   = "grey40",
+  "DR"      = "grey70",
+  "DR.IGF1" = "#E87722",
+  "DR.IGF2" = "#0C2340"
+)
+
+igf_colors <- c(
+  "No_IGF" = "grey40",
+  "IGF1"   = "#E87722",
+  "IGF2"   = "#0C2340"
+)
+```
+
+# 2. Data Import and Curation
+
+## 2.1 Pre-experimental body-mass dataset
+
+```{r import-weight-data}
+diet <- read.csv(
+  "WL.analysis.csv",
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+# The source file contains a trailing space in the Week column name.
+names(diet)[trimws(names(diet)) == "Week"] <- "Week"
+
+# Standardize factor order for consistent output.
+diet <- diet %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("AdLib", "DR", "DR.IGF1", "DR.IGF2")
+    )
+  )
+
+str(diet)
+```
+
+## 2.2 Eight-week regeneration dataset
+
+```{r import-regeneration-data}
+data <- read.csv(
+  "R.analysis.currated.csv",
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+# Remove observations from four individuals following substantial secondary
+# tail loss unrelated to the original experimental autotomy.
+#
+# The original July analysis removed the complete records for these animals.
+# This exclusion is retained here so that the reorganized file reproduces the
+# same analytical dataset and results.
+excluded_animals <- c("BC121", "BC144", "BC383", "BC561")
+
+data <- data %>%
+  filter(!Animal_ID %in% excluded_animals) %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("AdLib", "DR", "DR.IGF1", "DR.IGF2")
+    ),
+    Diet = case_when(
+      Treatment == "AdLib" ~ "AdLib",
+      Treatment %in% c("DR", "DR.IGF1", "DR.IGF2") ~ "Restricted",
+      TRUE ~ NA_character_
+    ),
+    Diet = factor(Diet, levels = c("AdLib", "Restricted")),
+    IGF = if_else(
+      Treatment %in% c("DR.IGF1", "DR.IGF2"),
+      "IGF",
+      "No_IGF"
+    ),
+    IGF = factor(IGF, levels = c("No_IGF", "IGF")),
+    IGF_type = case_when(
+      Treatment %in% c("AdLib", "DR") ~ "No_IGF",
+      Treatment == "DR.IGF1" ~ "IGF1",
+      Treatment == "DR.IGF2" ~ "IGF2",
+      TRUE ~ NA_character_
+    ),
+    IGF_type = factor(IGF_type, levels = c("No_IGF", "IGF1", "IGF2"))
+  )
+
+str(data)
+table(data$Treatment, useNA = "ifany")
+length(unique(data$Animal_ID))
+```
+
+# 3. Verification of Randomization
+
+Animals should not differ systematically in body size or original tail length before treatment implementation.
+
+## 3.1 Baseline subset
+
+```{r baseline-subset}
+pre_diet <- diet %>%
+  filter(Week == -4)
+```
+
+## 3.2 Initial snout–vent length
+
+```{r baseline-svl}
+model_svl <- lm(SVL ~ Treatment, data = pre_diet)
+anova(model_svl)
+summary(model_svl)
+
+plot_svl <- ggplot(
+  pre_diet,
+  aes(x = Treatment, y = SVL, fill = Treatment)
+) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_boxplot(width = 0.10, outlier.shape = NA) +
+  geom_jitter(width = 0.10) +
+  scale_fill_manual(values = treatment_colors) +
+  labs(x = "Treatment", y = "Snout–vent length") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+plot_svl
+
+ggsave(
+  filename = "svl.png",
+  plot = plot_svl,
+  width = 5,
+  height = 4,
+  dpi = 600
+)
+```
+
+**Manuscript result:** Initial snout–vent length did not differ among treatment groups, \(F_{3,72}=0.65\), \(p=0.58\).
+
+## 3.3 Initial body mass
+
+```{r baseline-mass}
+model_mass <- lm(Mass ~ Treatment, data = pre_diet)
+anova(model_mass)
+summary(model_mass)
+
+plot_mass <- ggplot(
+  pre_diet,
+  aes(x = Treatment, y = Mass, fill = Treatment)
+) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_boxplot(width = 0.10, outlier.shape = NA) +
+  geom_jitter(width = 0.10) +
+  scale_fill_manual(values = treatment_colors) +
+  labs(x = "Treatment", y = "Initial body mass") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+plot_mass
+
+ggsave(
+  filename = "mass.png",
+  plot = plot_mass,
+  width = 5,
+  height = 4,
+  dpi = 600
+)
+```
+
+**Manuscript result:** Initial body mass did not differ among treatment groups, \(F_{3,72}=0.55\), \(p=0.64\).
+
+## 3.4 Original tail length
+
+```{r baseline-tail}
+model_tail_baseline <- lm(Tail ~ Treatment, data = pre_diet)
+anova(model_tail_baseline)
+summary(model_tail_baseline)
+```
+
+**Manuscript result:** Original tail length did not differ significantly among treatment groups, \(F_{3,72}=2.26\), \(p=0.09\).
+
+# 4. Verification of the Dietary Manipulation
+
+## 4.1 Percent body-mass loss after acclimation
+
+```{r diet-manipulation}
+diet_final_acclimation <- diet %>%
+  filter(Week == -1)
+
+model_diet_loss <- lm(Perc_WL ~ Diet, data = diet_final_acclimation)
+anova(model_diet_loss)
+summary(model_diet_loss)
+
+diet_group_summary <- diet_final_acclimation %>%
+  group_by(Diet) %>%
+  summarise(
+    n = sum(!is.na(Perc_WL)),
+    mean_percent_loss = mean(Perc_WL, na.rm = TRUE),
+    sd_percent_loss = sd(Perc_WL, na.rm = TRUE),
+    mean_percent_original_mass = mean(Perc_Orig, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+diet_group_summary
+```
+
+**Manuscript result:** Diet-restricted females lost significantly more body mass than ad libitum-fed females, \(F_{1,67}=13.85\), \(p=0.0004\).
+
+## 4.2 Figure 1A: energetic manipulation
+
+```{r figure-diet-manipulation}
+plot_diet <- ggplot(
+  diet_final_acclimation,
+  aes(x = Diet, y = Perc_Orig)
+) +
+  geom_violin(
+    fill = "grey75",
+    color = "black",
+    trim = FALSE,
+    scale = "width",
+    alpha = 0.8
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    fill = "white",
+    color = "black"
+  ) +
+  geom_jitter(
+    width = 0.08,
+    size = 1.8,
+    shape = 21,
+    fill = "white",
+    color = "black",
+    alpha = 0.8
+  ) +
+  labs(
+    x = "Diet",
+    y = "Percent of original body mass"
+  ) +
+  theme_classic(base_size = 12)
+
+plot_diet
+
+ggsave(
+  filename = "diet.png",
+  plot = plot_diet,
+  width = 5,
+  height = 4,
+  dpi = 600
+)
+```
+
+## 4.3 Body-mass trajectories during acclimation
+
+These plots are retained from the original analysis to document how body mass changed before tail autotomy.
+
+```{r acclimation-trajectories}
+plot_mass_by_week_violin <- ggplot(
+  diet,
+  aes(x = factor(Week), y = Mass, fill = Diet)
+) +
+  geom_violin(
+    trim = FALSE,
+    position = dodge,
+    scale = "width",
+    width = 0.5
+  ) +
+  geom_boxplot(
+    width = 0.10,
+    position = dodge,
+    outlier.shape = NA
+  ) +
+  geom_jitter(position = dodge) +
+  scale_fill_manual(values = c("Adlib" = "slategrey", "DR" = "lemonchiffon2")) +
+  labs(x = "Week", y = "Body mass") +
+  theme_classic()
+
+plot_mass_by_week <- ggplot(
+  diet,
+  aes(x = Week, y = Mass, color = Diet)
+) +
+  geom_smooth() +
+  scale_color_manual(values = c("Adlib" = "slategrey", "DR" = "lemonchiffon2")) +
+  theme_classic()
+
+plot_loss_by_week <- ggplot(
+  diet,
+  aes(x = Week, y = Perc_WL, color = Diet)
+) +
+  geom_smooth() +
+  scale_color_manual(values = c("Adlib" = "slategrey", "DR" = "lemonchiffon2")) +
+  theme_classic()
+
+plot_percent_original_by_week <- ggplot(
+  diet,
+  aes(x = Week, y = Perc_Orig, color = Diet)
+) +
+  geom_smooth() +
+  scale_color_manual(values = c("Adlib" = "slategrey", "DR" = "lemonchiffon2")) +
+  theme_classic()
+
+plot_mass_by_week_violin
+plot_mass_by_week
+plot_loss_by_week
+plot_percent_original_by_week
+
+ggsave(
+  filename = "diet2.png",
+  plot = plot_mass_by_week_violin,
+  width = 5,
+  height = 4,
+  dpi = 600
+)
+
+ggsave(
+  filename = "diet4.png",
+  plot = plot_percent_original_by_week,
+  width = 4.75,
+  height = 4,
+  dpi = 600
+)
+```
+
+# 5. Establishing the Energetic Trade-off
+
+## 5.1 Primary cumulative-percent-regeneration model
+
+```{r tradeoff-primary-model}
+model_weightloss <- lmer(
+  Perc.Regeneration ~ Week * Perc.WeightLoss +
+    (1 | Animal_ID),
+  data = data
+)
+
+summary(model_weightloss)
+anova(model_weightloss)
+```
+
+**Manuscript results:**
+
+- Week: \(\beta=4.86\), \(t=25.31\), \(p<0.0001\)
+- Percent body-mass loss: \(\beta=0.074\), \(t=1.39\), \(p=0.165\)
+- Week × percent body-mass loss: \(\beta=-0.030\), \(t=-3.01\), \(p=0.0028\)
+
+A negative Week × Percent Weight Loss interaction indicates that animals experiencing greater energetic deficits regenerated progressively less tail tissue over time.
+
+## 5.2 Alternative regeneration metrics
+
+These models retain the same fixed- and random-effect structure while replacing the response variable.
+
+```{r tradeoff-alternative-responses}
+model_weightloss_rate <- lmer(
+  Rate_Reg ~ Week * Perc.WeightLoss +
+    (1 | Animal_ID),
+  data = data
+)
+
+model_weightloss_absolute <- lmer(
+  Regeneration ~ Week * Perc.WeightLoss +
+    (1 | Animal_ID),
+  data = data
+)
+
+summary(model_weightloss_rate)
+summary(model_weightloss_absolute)
+```
+
+## 5.3 Exploratory visualization by energetic-state category
+
+The primary analyses treat percent body-mass loss continuously. The following three-category plot is retained only as a descriptive visualization.
+
+```{r exploratory-weightloss-categories}
+data <- data %>%
+  mutate(
+    WL_group = cut(Perc.WeightLoss, breaks = 3)
+  )
+
+ggplot(
+  data,
+  aes(
+    x = Week,
+    y = Perc.Regeneration,
+    color = WL_group,
+    group = WL_group
+  )
+) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  stat_summary(fun = mean, geom = "point") +
+  labs(
+    x = "Week",
+    y = "Cumulative percent regeneration",
+    color = "Weight-loss category"
+  ) +
+  theme_classic()
+```
+
+# 6. Testing Rescue by IGF Supplementation
+
+## 6.1 Primary IGF1-versus-IGF2 rescue model
+
+```{r rescue-primary-model}
+model_igf_split <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = data
+)
+
+summary(model_igf_split)
+anova(model_igf_split)
+```
+
+**Manuscript interpretation:** IGF2 significantly altered the increasingly negative relationship between energetic deficit and regeneration, whereas IGF1 did not.
+
+## 6.2 Model-based predictions
+
+```{r rescue-model-predictions}
+predicted_all_weeks <- ggpredict(
+  model_igf_split,
+  terms = c(
+    "Perc.WeightLoss",
+    "IGF_type",
+    "Week [2,4,6,8]"
+  )
+)
+
+predicted_early_weeks <- ggpredict(
+  model_igf_split,
+  terms = c(
+    "Perc.WeightLoss",
+    "IGF_type",
+    "Week [2,4]"
+  )
+)
+
+predicted_all_weeks
+predicted_early_weeks
+```
+
+```{r rescue-prediction-plot}
+plot_predictions <- ggplot(
+  predicted_all_weeks,
+  aes(
+    x = x,
+    y = predicted,
+    color = group,
+    fill = group
+  )
+) +
+  geom_ribbon(
+    aes(ymin = conf.low, ymax = conf.high),
+    alpha = 0.15,
+    color = NA
+  ) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~facet) +
+  scale_color_manual(values = igf_colors) +
+  scale_fill_manual(values = igf_colors) +
+  labs(
+    x = "Percent body-mass loss",
+    y = "Predicted cumulative percent regeneration",
+    color = "IGF treatment",
+    fill = "IGF treatment"
+  ) +
+  theme_classic()
+
+plot_predictions
+```
+
+## 6.3 Week-specific energetic-state slopes
+
+```{r rescue-week-specific-slopes}
+week_specific_slopes <- emtrends(
+  model_igf_split,
+  ~ IGF_type | Week,
+  var = "Perc.WeightLoss",
+  at = list(Week = c(2, 4, 6, 8))
+)
+
+summary(week_specific_slopes, infer = TRUE)
+test(week_specific_slopes)
+
+week_specific_slopes_df <- as.data.frame(
+  summary(week_specific_slopes, infer = TRUE)
+)
+```
+
+## 6.4 Pairwise comparisons of slopes
+
+The manuscript describes Tukey-adjusted comparisons among supplementation groups. Both the full pairwise comparisons and treatment-versus-control contrasts are retained.
+
+```{r rescue-pairwise-comparisons}
+# All pairwise comparisons within week, Tukey adjusted
+pairwise_slopes_tukey <- pairs(
+  week_specific_slopes,
+  adjust = "tukey"
+)
+
+pairwise_slopes_tukey
+
+# Treatment-versus-control contrasts retained from the original figure workflow
+contrasts_vs_control <- contrast(
+  week_specific_slopes,
+  method = "trt.vs.ctrl",
+  ref = "No_IGF",
+  adjust = "none"
+)
+
+contrasts_vs_control
+```
+
+## 6.5 Figure 2A: week-specific rescue slopes
+
+```{r figure-rescue-slopes}
+comparison_labels <- as.data.frame(contrasts_vs_control) %>%
+  mutate(
+    IGF_type = case_when(
+      grepl("IGF1", contrast) ~ "IGF1",
+      grepl("IGF2", contrast) ~ "IGF2",
+      TRUE ~ NA_character_
+    ),
+    sig_vs_control = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.10  ~ "†",
+      TRUE            ~ ""
+    )
+  ) %>%
+  select(Week, IGF_type, sig_vs_control)
+
+control_labels <- week_specific_slopes_df %>%
+  filter(IGF_type == "No_IGF") %>%
+  transmute(
+    Week,
+    IGF_type,
+    sig_vs_control = ""
+  )
+
+rescue_plot_data <- week_specific_slopes_df %>%
+  left_join(
+    bind_rows(control_labels, comparison_labels),
+    by = c("Week", "IGF_type")
+  )
+
+plot_rescue <- ggplot(
+  rescue_plot_data,
+  aes(
+    x = Week,
+    y = Perc.WeightLoss.trend,
+    color = IGF_type
+  )
+) +
+  annotate(
+    "rect",
+    xmin = -Inf,
+    xmax = Inf,
+    ymin = -Inf,
+    ymax = 0,
+    fill = "#E87722",
+    alpha = 0.12
+  ) +
+  annotate(
+    "rect",
+    xmin = -Inf,
+    xmax = Inf,
+    ymin = 0,
+    ymax = Inf,
+    fill = "#0C2340",
+    alpha = 0.12
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "black"
+  ) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.15,
+    position = position_dodge(width = 0.25)
+  ) +
+  geom_point(
+    size = 4,
+    position = position_dodge(width = 0.25)
+  ) +
+  geom_text(
+    aes(
+      y = upper.CL + 0.05,
+      label = sig_vs_control
+    ),
+    position = position_dodge(width = 0.25),
+    size = 8,
+    show.legend = FALSE
+  ) +
+  annotate(
+    "label",
+    x = 4.5,
+    y = 0.72,
+    label = "Energetic Rescue",
+    hjust = 0,
+    color = "#0C2340",
+    fill = "white",
+    fontface = "bold",
+    size = 6,
+    label.size = 0.5,
+    label.padding = grid::unit(0.15, "lines")
+  ) +
+  annotate(
+    "label",
+    x = 4.5,
+    y = -0.45,
+    label = "Energetic Trade-off",
+    hjust = 0,
+    color = "#E87722",
+    fill = "white",
+    fontface = "bold",
+    size = 6,
+    label.size = 0.5,
+    label.padding = grid::unit(0.15, "lines")
+  ) +
+  scale_color_manual(
+    values = c(
+      "IGF1" = "#E87722",
+      "IGF2" = "#0C2340",
+      "No_IGF" = "grey40"
+    ),
+    labels = c(
+      "IGF1" = "IGF1",
+      "IGF2" = "IGF2",
+      "No_IGF" = "None"
+    )
+  ) +
+  labs(
+    title = "IGF2 Reduces the Constraint on Regeneration",
+    subtitle = "Change in regeneration per 1% increase in weight loss",
+    x = "Week",
+    y = "Slope of Regeneration vs. Weight Loss",
+    color = "Supplementation"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold")
+  )
+
+plot_rescue
+
+ggsave(
+  filename = "IGF2_energetic_rescue_figure.png",
+  plot = plot_rescue,
+  width = 7,
+  height = 5,
+  dpi = 600
+)
+```
+
+## 6.6 Residual-variance checks among IGF groups
+
+```{r rescue-residual-variance}
+model_frame_rescue <- model.frame(model_igf_split)
+model_frame_rescue$resid <- residuals(model_igf_split)
+
+leveneTest(resid ~ IGF_type, data = model_frame_rescue)
+
+model_frame_igf1 <- model_frame_rescue %>%
+  filter(IGF_type %in% c("No_IGF", "IGF1"))
+
+model_frame_igf2 <- model_frame_rescue %>%
+  filter(IGF_type %in% c("No_IGF", "IGF2"))
+
+leveneTest(resid ~ IGF_type, data = model_frame_igf1)
+leveneTest(resid ~ IGF_type, data = model_frame_igf2)
+```
+
+# 7. Bootstrap Evaluation of the Rescue Effect
+
+The July analysis contains two bootstrap procedures. Both are retained here because they address different purposes:
+
+1. A parametric bootstrap of the full rescue model for visualizing fixed-effect distributions.
+2. A late-stage bootstrap used in the sensitivity analysis of weeks 5–8.
+
+## 7.1 Parametric bootstrap of the full rescue model
+
+```{r bootstrap-full-model}
+boot_fixed_effects <- function(fit) {
+  fixef(fit)
+}
+
+bootstrap_full <- bootMer(
+  model_igf_split,
+  FUN = boot_fixed_effects,
+  nsim = 500,
+  type = "parametric"
+)
+
+bootstrap_full_df <- as.data.frame(bootstrap_full$t)
+names(bootstrap_full_df) <- names(fixef(model_igf_split))
+
+bootstrap_full_long <- bootstrap_full_df %>%
+  select(
+    `Week:Perc.WeightLoss`,
+    `Week:Perc.WeightLoss:IGF_typeIGF1`,
+    `Week:Perc.WeightLoss:IGF_typeIGF2`
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "term",
+    values_to = "estimate"
+  )
+
+bootstrap_plot <- ggplot(
+  bootstrap_full_long,
+  aes(x = estimate, fill = term)
+) +
+  geom_density(alpha = 0.9) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(
+    values = c("grey40", "#E87722", "#0C2340")
+  ) +
+  labs(
+    x = "Bootstrap estimate",
+    y = "Density",
+    fill = "Model term"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+bootstrap_plot
+
+ggsave(
+  filename = "bootstrapConfid.png",
+  plot = bootstrap_plot,
+  width = 2.5,
+  height = 2,
+  dpi = 600
+)
+```
+
+# 8. Additional and Sensitivity Analyses
+
+## 8.1 Administered hormone dose
+
+```{r dose-analysis}
+igf_data <- data %>%
+  filter(Treatment %in% c("DR.IGF1", "DR.IGF2")) %>%
+  mutate(
+    IGF_type = factor(
+      Treatment,
+      levels = c("DR.IGF1", "DR.IGF2")
+    )
+  ) %>%
+  group_by(Animal_ID) %>%
+  fill(Dose, .direction = "downup") %>%
+  ungroup()
+
+model_dose <- lmer(
+  Rate_Reg ~ Week * Dose * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = igf_data
+)
+
+summary(model_dose)
+anova(model_dose)
+```
+
+**Interpretation:** Modest individual variation in administered dose did not detectably influence regeneration rate or explain the different responses to IGF1 and IGF2.
+
+## 8.2 Absolute regenerated tail length
+
+```{r absolute-regeneration-rescue}
+model_rescue_absolute <- lmer(
+  Regeneration ~
+    Week * Perc.WeightLoss * IGF +
+    Tail +
+    (1 | Animal_ID),
+  data = data
+)
+
+summary(model_rescue_absolute)
+anova(model_rescue_absolute)
+```
+
+**Manuscript results:**
+
+- Week: \(\beta=3.29\), \(t=22.87\), \(p<0.0001\)
+- Week × percent body-mass loss: \(\beta=-0.0166\), \(t=-2.20\), \(p=0.028\)
+- Week × percent body-mass loss × IGF: \(\beta=0.0420\), \(t=3.06\), \(p=0.0026\)
+
+## 8.3 Endpoint covariance between energetic state and regeneration
+
+```{r endpoint-tradeoff}
+final_regeneration_data <- data %>%
+  group_by(Animal_ID) %>%
+  summarise(
+    final_regeneration = max(Regeneration, na.rm = TRUE),
+    weight_loss = first(Perc.WeightLoss),
+    Treatment = first(Treatment),
+    .groups = "drop"
+  )
+
+cor.test(
+  final_regeneration_data$weight_loss,
+  final_regeneration_data$final_regeneration
+)
+
+model_endpoint_tradeoff <- lm(
+  final_regeneration ~ weight_loss * Treatment,
+  data = final_regeneration_data
+)
+
+summary(model_endpoint_tradeoff)
+anova(model_endpoint_tradeoff)
+```
+
+This endpoint analysis is retained because it demonstrates that the longitudinal mixed-effects model is more sensitive to changes in regenerative dynamics than a single final-time-point comparison.
+
+## 8.4 Final percent body-mass loss among treatment groups
+
+```{r final-weight-loss}
+final_weight_loss <- data %>%
+  ungroup() %>%
+  group_by(Animal_ID) %>%
+  summarise(
+    final_weight_loss = max(Perc.WeightLoss, na.rm = TRUE),
+    Treatment = first(na.omit(Treatment)),
+    .groups = "drop"
+  ) %>%
+  filter(
+    !is.na(final_weight_loss),
+    is.finite(final_weight_loss),
+    !is.na(Treatment)
+  ) %>%
+  mutate(
+    Treatment = droplevels(as.factor(Treatment))
+  )
+
+model_final_weight_loss <- lm(
+  final_weight_loss ~ Treatment,
+  data = final_weight_loss
+)
+
+anova(model_final_weight_loss)
+
+final_weight_loss_emmeans <- emmeans(
+  model_final_weight_loss,
+  pairwise ~ Treatment,
+  adjust = "tukey"
+)
+
+final_weight_loss_emmeans
+```
+
+**Manuscript interpretation:** Final percent body-mass loss did not differ among the three diet-restricted groups, supporting the conclusion that the IGF2 rescue effect was not explained by reduced energetic deficit.
+
+```{r final-weight-loss-plot}
+ggplot(
+  final_weight_loss,
+  aes(
+    x = Treatment,
+    y = final_weight_loss,
+    fill = Treatment
+  )
+) +
+  geom_violin(alpha = 0.3, trim = FALSE) +
+  geom_jitter(width = 0.1, alpha = 0.7, size = 2) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 4,
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_cl_normal,
+    geom = "errorbar",
+    width = 0.15,
+    color = "black"
+  ) +
+  scale_fill_manual(values = treatment_colors) +
+  labs(
+    x = "Treatment",
+    y = "Final percent body-mass loss"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+# 9. Evaluation of Weeks 5–8
+
+## 9.1 Visual inspection of individual regeneration trajectories
+
+```{r later-timepoint-trajectories}
+regeneration_raw <- read.csv(
+  "R.analysis.currated.csv",
+  stringsAsFactors = FALSE
+)
+
+regeneration_after_week_2 <- regeneration_raw %>%
+  filter(Week > 2)
+
+plot_length_loss_all <- ggplot(
+  regeneration_raw,
+  aes(
+    x = Week,
+    y = Regeneration,
+    color = Animal_ID,
+    group = Animal_ID
+  )
+) +
+  geom_line() +
+  geom_text(
+    aes(label = Animal_ID),
+    hjust = 0,
+    vjust = 0,
+    size = 2
+  ) +
+  facet_wrap(
+    ~Treatment,
+    scales = "free",
+    ncol = 2
+  ) +
+  theme(legend.position = "none")
+
+plot_length_loss_late <- ggplot(
+  regeneration_after_week_2,
+  aes(
+    x = Week,
+    y = Regeneration,
+    color = Animal_ID,
+    group = Animal_ID
+  )
+) +
+  geom_line() +
+  geom_text(
+    aes(label = Animal_ID),
+    hjust = 0,
+    vjust = 0,
+    size = 2
+  ) +
+  facet_wrap(
+    ~Treatment,
+    scales = "free",
+    ncol = 2
+  ) +
+  theme(legend.position = "none")
+
+plot_length_loss_all
+plot_length_loss_late
+
+ggsave(
+  filename = "length_loss.png",
+  plot = plot_length_loss_all,
+  width = 8,
+  height = 8,
+  dpi = 600
+)
+
+ggsave(
+  filename = "length_loss_sub.png",
+  plot = plot_length_loss_late,
+  width = 8,
+  height = 8,
+  dpi = 600
+)
+```
+
+## 9.2 Early-only versus full eight-week model
+
+```{r early-versus-full-models}
+model_early <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = data %>%
+    filter(Week <= 4)
+)
+
+model_full <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = data
+)
+
+summary(model_early)
+summary(model_full)
+```
+
+**Reported comparison:**
+
+- Weeks 1–4: IGF2 interaction \(\beta=0.088\), \(p=0.213\)
+- Weeks 1–8: IGF2 interaction \(\beta=0.114\), \(p=0.000138\)
+
+## 9.3 Within-individual repeatability
+
+```{r full-model-icc}
+icc(model_full)
+```
+
+**Reported result:** Adjusted ICC approximately 0.47, indicating moderate within-individual repeatability across the full eight-week dataset.
+
+## 9.4 Residual variation across weeks
+
+```{r residual-variation-by-week}
+full_model_residual_data <- model.frame(model_full) %>%
+  mutate(
+    residual = residuals(model_full),
+    absolute_residual = abs(residual)
+  )
+
+model_absolute_residuals <- lm(
+  absolute_residual ~ factor(Week),
+  data = full_model_residual_data
+)
+
+anova(model_absolute_residuals)
+```
+
+## 9.5 Late-stage bootstrap
+
+```{r late-stage-bootstrap}
+late_data <- data %>%
+  filter(Week >= 5)
+
+model_late <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = late_data
+)
+
+late_boot_function <- function(fit) {
+  fixef(fit)["Week:Perc.WeightLoss:IGF_typeIGF2"]
+}
+
+bootstrap_late <- bootMer(
+  model_late,
+  FUN = late_boot_function,
+  nsim = 1000
+)
+
+late_bootstrap_interval <- quantile(
+  bootstrap_late$t,
+  c(0.025, 0.5, 0.975),
+  na.rm = TRUE
+)
+
+late_bootstrap_interval
+```
+
+**Reported result:** Median \(=0.142\), 95% bootstrap interval \(=0.051\) to \(0.231\).
+
+# 10. Evaluation of Original Tail Length as a Covariate
+
+Models are fitted with maximum likelihood for valid AIC comparison.
+
+```{r tail-covariate-aic}
+model_rescue_without_tail <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    (1 | Animal_ID),
+  data = data,
+  REML = FALSE
+)
+
+model_rescue_with_tail <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * IGF_type +
+    Tail +
+    (1 | Animal_ID),
+  data = data,
+  REML = FALSE
+)
+
+AIC(
+  model_rescue_without_tail,
+  model_rescue_with_tail
+)
+
+summary(model_rescue_with_tail)
+anova(model_rescue_with_tail)
+```
+
+**Reported result:** Inclusion of original tail length improved model fit by \(\Delta AIC=6.9\), so Tail was retained as an additive covariate in the primary rescue model.
+
+# 11. Publication Figures
+
+## 11.1 Figure 1: dietary restriction and the energetic trade-off
+
+```{r publication-figure-1}
+figure1_weight_data <- diet_final_acclimation %>%
+  mutate(
+    Diet_display = case_when(
+      Treatment == "AdLib" ~ "High",
+      Treatment %in% c("DR", "DR.IGF1", "DR.IGF2") ~ "Low",
+      TRUE ~ NA_character_
+    ),
+    Diet_display = factor(
+      Diet_display,
+      levels = c("High", "Low")
+    )
+  )
+
+figure1_regeneration_data <- data %>%
+  mutate(
+    Diet_display = case_when(
+      Treatment == "AdLib" ~ "High",
+      Treatment %in% c("DR", "DR.IGF1", "DR.IGF2") ~ "Low",
+      TRUE ~ NA_character_
+    ),
+    Diet_display = factor(
+      Diet_display,
+      levels = c("High", "Low")
+    )
+  )
+
+panel_1a <- ggplot(
+  figure1_weight_data,
+  aes(x = Diet_display, y = Perc_Orig)
+) +
+  geom_violin(
+    fill = "grey75",
+    color = "black",
+    trim = FALSE,
+    scale = "width",
+    alpha = 0.8
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    fill = "white",
+    color = "black"
+  ) +
+  geom_jitter(
+    width = 0.08,
+    size = 1.8,
+    shape = 21,
+    fill = "white",
+    color = "black",
+    alpha = 0.8
+  ) +
+  labs(
+    title = "Dietary restriction increased weight loss",
+    x = "Diet",
+    y = "Percent of original body mass"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold")
+  )
+
+panel_1b <- ggplot(
+  figure1_regeneration_data,
+  aes(
+    x = Week,
+    y = Perc.Regeneration,
+    shape = Diet_display,
+    linetype = Diet_display,
+    group = Diet_display
+  )
+) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2,
+    color = "black"
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 3,
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.15,
+    color = "black"
+  ) +
+  scale_shape_manual(
+    values = c("High" = 16, "Low" = 17)
+  ) +
+  scale_linetype_manual(
+    values = c("High" = "solid", "Low" = "dashed")
+  ) +
+  labs(
+    title = "Dietary restriction reduced regeneration",
+    x = "Week",
+    y = "Percent regeneration",
+    shape = "Diet",
+    linetype = "Diet"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+tradeoff_no_igf <- data %>%
+  filter(IGF_type == "No_IGF")
+
+model_tradeoff_no_igf <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss +
+    (1 | Animal_ID),
+  data = tradeoff_no_igf
+)
+
+tradeoff_slopes <- emtrends(
+  model_tradeoff_no_igf,
+  ~ Week,
+  var = "Perc.WeightLoss",
+  at = list(Week = c(2, 4, 6, 8))
+)
+
+tradeoff_slopes_df <- as.data.frame(
+  summary(tradeoff_slopes, infer = TRUE)
+) %>%
+  mutate(
+    sig_zero = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.10  ~ "†",
+      TRUE            ~ ""
+    )
+  )
+
+panel_1c <- ggplot(
+  tradeoff_slopes_df,
+  aes(
+    x = Week,
+    y = Perc.WeightLoss.trend
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.18,
+    linewidth = 0.8,
+    color = "grey30"
+  ) +
+  geom_point(
+    size = 4.5,
+    color = "grey30"
+  ) +
+  geom_text(
+    aes(
+      y = lower.CL - 0.035,
+      label = sig_zero
+    ),
+    size = 5,
+    fontface = "bold",
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = c(2, 4, 6, 8)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.4, 0.1, by = 0.1),
+    limits = c(-0.43, 0.15),
+    labels = scales::number_format(accuracy = 0.1),
+    expand = expansion(mult = c(0.04, 0.05))
+  ) +
+  labs(
+    title = "Energetic trade-off strengthened over time",
+    subtitle = "Change in regeneration per 1% increase in weight loss",
+    x = "Week",
+    y = "Slope of Regeneration\nvs. Weight Loss"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(face = "bold", size = 12),
+    axis.title = element_text(face = "bold", size = 13),
+    axis.text = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(margin = margin(r = 10))
+  )
+
+figure_1 <- (panel_1a + panel_1b) / panel_1c +
+  plot_layout(heights = c(1, 0.9)) +
+  plot_annotation(
+    title = "Dietary Restriction Establishes an Energetic Trade-Off",
+    tag_levels = "A"
+  ) &
+  theme(
+    plot.tag = element_text(face = "bold", size = 20)
+  )
+
+figure_1
+
+ggsave(
+  filename = "dietary_restriction_tradeoff_multiplot.png",
+  plot = figure_1,
+  width = 10,
+  height = 7,
+  dpi = 600
+)
+```
+
+## 11.2 Figure 2B: cumulative change in slope
+
+```{r publication-figure-2b}
+cumulative_slope_change <- week_specific_slopes_df %>%
+  filter(Week %in% c(2, 8)) %>%
+  select(
+    IGF_type,
+    Week,
+    Perc.WeightLoss.trend
+  ) %>%
+  pivot_wider(
+    names_from = Week,
+    values_from = Perc.WeightLoss.trend,
+    names_prefix = "Week_"
+  ) %>%
+  mutate(
+    change = Week_8 - Week_2
+  )
+
+plot_cumulative_effect <- ggplot(
+  cumulative_slope_change,
+  aes(
+    x = IGF_type,
+    y = change,
+    fill = IGF_type
+  )
+) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_col(width = 0.65) +
+  scale_fill_manual(values = igf_colors) +
+  scale_x_discrete(
+    labels = c(
+      "No_IGF" = "None",
+      "IGF1" = "IGF1",
+      "IGF2" = "IGF2"
+    )
+  ) +
+  labs(
+    title = "Cumulative Effects",
+    x = "Supplementation",
+    y = expression(Delta ~ slope ~ relative ~ to ~ control),
+    fill = "IGF supplementation"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+plot_cumulative_effect
+
+ggsave(
+  filename = "IGF2_means.png",
+  plot = plot_cumulative_effect,
+  width = 2.5,
+  height = 2,
+  dpi = 600
+)
+```
+
+## 11.3 Regeneration and body-mass-loss trajectories
+
+```{r regeneration-weightloss-figure}
+plot_regeneration_trajectories <- ggplot(
+  data,
+  aes(
+    x = Week,
+    y = Perc.Regeneration,
+    color = Treatment,
+    group = Treatment
+  )
+) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  stat_summary(fun = mean, geom = "point", size = 2.8) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.15) +
+  scale_color_manual(
+    values = treatment_colors,
+    labels = c(
+      "AdLib" = "AdLib",
+      "DR" = "DR",
+      "DR.IGF1" = "DR + IGF1",
+      "DR.IGF2" = "DR + IGF2"
+    )
+  ) +
+  labs(
+    title = "Regeneration diverged among treatments",
+    x = "Week",
+    y = "Percent regeneration",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+plot_weightloss_trajectories <- ggplot(
+  data,
+  aes(
+    x = Week,
+    y = Perc.WeightLoss,
+    color = Treatment,
+    group = Treatment
+  )
+) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  stat_summary(fun = mean, geom = "point", size = 2.8) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.15) +
+  scale_color_manual(
+    values = treatment_colors,
+    labels = c(
+      "AdLib" = "AdLib",
+      "DR" = "DR",
+      "DR.IGF1" = "DR + IGF1",
+      "DR.IGF2" = "DR + IGF2"
+    )
+  ) +
+  labs(
+    title = "Weight loss did not separate similarly",
+    x = "Week",
+    y = "Percent weight loss",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+combined_regeneration_weightloss <- (
+  plot_regeneration_trajectories /
+    plot_weightloss_trajectories
+) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title = "IGF2 altered regeneration without broadly reducing energetic deficit"
+  ) &
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+combined_regeneration_weightloss
+```
+
+## 11.4 Restricted-group biology figure
+
+```{r restricted-groups-figure}
+restricted_data <- data %>%
+  filter(
+    Treatment %in% c("DR", "DR.IGF1", "DR.IGF2")
+  ) %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("DR", "DR.IGF1", "DR.IGF2")
+    )
+  )
+
+model_restricted_rescue <- lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * Treatment +
+    (1 | Animal_ID),
+  data = restricted_data
+)
+
+restricted_slopes <- emtrends(
+  model_restricted_rescue,
+  ~ Treatment | Week,
+  var = "Perc.WeightLoss",
+  at = list(Week = c(2, 4, 6, 8))
+)
+
+restricted_slopes_df <- as.data.frame(
+  summary(restricted_slopes, infer = TRUE)
+)
+
+restricted_colors <- c(
+  "DR" = "grey40",
+  "DR.IGF1" = "#E87722",
+  "DR.IGF2" = "#0C2340"
+)
+
+restricted_labels <- c(
+  "DR" = "DR",
+  "DR.IGF1" = "DR + IGF1",
+  "DR.IGF2" = "DR + IGF2"
+)
+
+restricted_panel_a <- ggplot(
+  restricted_slopes_df,
+  aes(
+    x = Week,
+    y = Perc.WeightLoss.trend,
+    color = Treatment,
+    group = Treatment
+  )
+) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.15,
+    position = position_dodge(width = 0.25)
+  ) +
+  geom_point(
+    size = 3.5,
+    position = position_dodge(width = 0.25)
+  ) +
+  geom_line(
+    linewidth = 1,
+    position = position_dodge(width = 0.25)
+  ) +
+  scale_color_manual(
+    values = restricted_colors,
+    labels = restricted_labels,
+    name = "Treatment"
+  ) +
+  labs(
+    title = "IGF2 changed the regeneration response to weight loss",
+    x = "Week",
+    y = "Change in regeneration per 1% weight loss"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+restricted_final_weight_loss <- final_weight_loss %>%
+  filter(
+    Treatment %in% c("DR", "DR.IGF1", "DR.IGF2")
+  ) %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("DR", "DR.IGF1", "DR.IGF2")
+    )
+  )
+
+restricted_panel_b <- ggplot(
+  restricted_final_weight_loss,
+  aes(
+    x = Treatment,
+    y = final_weight_loss,
+    fill = Treatment
+  )
+) +
+  geom_violin(trim = FALSE, alpha = 0.25, color = NA) +
+  geom_jitter(width = 0.08, alpha = 0.6, size = 1.8) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 3.5,
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_cl_normal,
+    geom = "errorbar",
+    width = 0.15,
+    color = "black"
+  ) +
+  scale_fill_manual(
+    values = restricted_colors,
+    labels = restricted_labels,
+    name = "Treatment"
+  ) +
+  scale_x_discrete(labels = restricted_labels) +
+  labs(
+    title = "IGF2 did not reduce body mass loss",
+    x = "Treatment",
+    y = "Final percent body-mass loss"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+restricted_biology_figure <- (
+  restricted_panel_a |
+    restricted_panel_b
+) +
+  plot_layout(widths = c(1.5, 1)) +
+  plot_annotation(
+    title = "IGF2 altered regeneration biology without reducing energetic deficit",
+    tag_levels = "A"
+  ) &
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.tag = element_text(face = "bold", size = 16)
+  )
+
+restricted_biology_figure
+```
+
+# 12. Session Information
+
+Including session information documents the versions of R and all attached packages used to render the analysis.
+
+```{r session-information}
+sessionInfo()
+```
