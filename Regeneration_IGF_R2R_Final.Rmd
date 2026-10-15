@@ -1,0 +1,1586 @@
+---
+title: "When resources are limited, tail regeneration slows, but supplemental IGF2 modifies the relationship between energetic state and tail regeneration." 
+author: "Analysis and reproducibility code"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: show
+    df_print: paged
+---
+
+# Overview and Setup
+
+## Main takeaways
+
+- Dietary restriction successfully produced a difference in pre-autotomy body-mass loss. Restricted females lost more body mass than ad libitum-fed females before autotomy.
+- During regeneration, greater concurrent body-mass loss was positively associated with cumulative regenerative performance across Weeks 1–8. Estimated slopes increased numerically across time, but the Week × percent-mass-loss interaction was not statistically significant (p = 0.106), so there is insufficient evidence that the strength of this association changed over time. Because these variables were measured concurrently, this result is interpreted as **energetic-state/regeneration coupling**, not as evidence that energetic state caused subsequent regeneration.
+- Temporal validation asks whether the same relationship is detectable when energetic state precedes the regenerative response. These analyses distinguish a prospective energetic effect from the concurrent association observed during regeneration.
+- IGF analyses are restricted to diet-restricted animals so that Vehicle, IGF1, and IGF2 are compared while holding diet constant. Week-specific slopes and pairwise contrasts are used to determine whether supplementation modifies energetic-state/regeneration coupling.
+- Post-autotomy body-mass trajectories did not differ significantly among supplementation groups, so the IGF-associated regeneration patterns are not explained by a uniquely different body-mass trajectory in the IGF2 group.
+- Overall, the analyses support a contemporaneous association between ongoing energetic state and regenerative performance. They do not establish the direction of causality or provide strong evidence that the association itself changes over time.
+
+**Purpose:** Provide the complete analysis and figure-generation workflow accompanying the manuscript on energetic state, IGF supplementation, and tail regeneration in adult female brown anoles (*Anolis sagrei*).
+
+**Approach:** Cumulative percent tail regeneration is the primary response. Percent body-mass loss is treated as a continuous measure of energetic state; positive values indicate mass loss and negative values indicate mass gain. The primary analysis evaluates the concurrent association between energetic state and cumulative regeneration. Temporal validation evaluates energetic state before autotomy and before subsequent regeneration intervals. IGF comparisons are restricted to diet-restricted animals because IGF1 and IGF2 were administered only within that diet treatment.
+
+**Result/Decision:** The concurrent analysis is retained as the primary energetic-state analysis. Pre-autotomy and lagged analyses are retained as temporal validation. IGF effects are interpreted from Restricted + Vehicle versus Restricted + IGF1 versus Restricted + IGF2 comparisons so that diet is held constant.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, error=FALSE,
+                      fig.align="center", fig.retina=2)
+```
+
+
+## Analysis group map
+
+For clarity, analyses use one of three group structures:
+
+- **All four groups:** AdLib, Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2. Used for baseline checks and broad questions about energetic state.
+- **Restricted-diet IGF comparison:** Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2. Used whenever the question is whether IGF1 or IGF2 modifies regeneration. This holds diet constant.
+- **IGF-treated animals only:** Restricted + IGF1 and Restricted + IGF2. Used only for dose analyses.
+
+This distinction is important because the High Diet/AdLib group received Vehicle but did not share the same diet treatment as the IGF groups. It should therefore not be pooled with Restricted + Vehicle when estimating the experimental effect of IGF supplementation.
+
+# Document organization
+
+This reproducibility file is organized into four major sections:
+
+1. **Published Analyses** — primary statistical analyses reported in the manuscript.
+2. **Publication Figures** — code used to create and export each manuscript figure panel separately for assembly in BioRender.
+3. **Validation** — temporal, alternative-outcome, tail-length, dose, and post-autotomy mass sensitivity analyses.
+4. **Exploration** — model-structure checks, full-period diagnostics, descriptive trajectories, sample sizes, and session information.
+
+Week-specific regeneration estimates are evaluated across **Weeks 1–8** where those observations are available. The body-mass trajectory displays **Week 0** explicitly. Lagged analyses use consecutive one-week intervals from Week 1→2 through Week 7→8.
+
+# Packages and plotting settings
+
+**Purpose:** Load the packages used for data manipulation, mixed models, estimated trends, model checks, and figure construction, and define the shared IGF plotting colors.
+
+**Approach:** Packages and plotting settings are loaded once so that the analyses and figures below use the same environment and treatment definitions.
+
+**Result/Decision:** These settings are used throughout the reproducibility file.
+
+```{r packages}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(performance)
+library(patchwork)
+set.seed(123)
+
+igf_colors <- c("Vehicle"="grey40", "IGF1"="#E66101", "IGF2"="#0B1F3A")
+```
+
+# Data import and preparation
+
+**Purpose:** Import the pre-autotomy/diet dataset and regeneration dataset and reconstruct the analysis groups used throughout the paper.
+
+**Approach:** The two analysis files are imported, animals with substantial secondary tail loss are excluded, treatment factors are reconstructed explicitly, and the restricted-diet IGF dataset is created. The code also prints the weeks and sample counts represented in each dataset.
+
+**Result/Decision:** All later analyses use these cleaned datasets and explicit group definitions. IGF comparisons use Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2 so that diet is held constant.
+
+```{r import-data}
+diet <- read.csv("WL.analysis.csv", stringsAsFactors=FALSE, check.names=FALSE)
+data <- read.csv("R.analysis.currated.csv", stringsAsFactors=FALSE, check.names=FALSE)
+names(diet) <- trimws(names(diet)); names(data) <- trimws(names(data))
+
+# Animals experiencing substantial secondary tail loss were excluded entirely.
+excluded_animals <- c("BC121", "BC144", "BC383", "BC561")
+data <- data %>% filter(!Animal_ID %in% excluded_animals)
+
+# Reconstruct analysis factors explicitly.
+data <- data %>%
+  mutate(
+    Treatment=factor(Treatment, levels=c("AdLib","DR","DR.IGF1","DR.IGF2")),
+    Diet=case_when(Treatment=="AdLib" ~ "AdLib",
+                   Treatment %in% c("DR","DR.IGF1","DR.IGF2") ~ "Restricted",
+                   TRUE ~ NA_character_),
+    Diet=factor(Diet, levels=c("AdLib","Restricted")),
+    IGF_type=case_when(Treatment %in% c("AdLib","DR") ~ "No_IGF",
+                       Treatment=="DR.IGF1" ~ "IGF1",
+                       Treatment=="DR.IGF2" ~ "IGF2",
+                       TRUE ~ NA_character_),
+    IGF_type=factor(IGF_type, levels=c("No_IGF","IGF1","IGF2"))
+  )
+
+# IGF analyses: restricted-diet animals only.
+igf_data <- data %>%
+  filter(Diet=="Restricted") %>%
+  mutate(
+    Supplementation=case_when(Treatment=="DR" ~ "Vehicle",
+                              Treatment=="DR.IGF1" ~ "IGF1",
+                              Treatment=="DR.IGF2" ~ "IGF2"),
+    Supplementation=factor(Supplementation, levels=c("Vehicle","IGF1","IGF2"))
+  )
+
+str(data)
+table(data$Treatment, useNA="ifany")
+table(igf_data$Supplementation, useNA="ifany")
+
+# Confirm which weeks are actually represented in each dataset.
+sort(unique(diet$Week))
+sort(unique(data$Week))
+data %>% count(Week)
+igf_data %>% count(Week)
+```
+
+# Published Analyses
+
+Analyses corresponding directly to the primary statistical tests reported in the manuscript.
+
+### Baseline characteristics and dietary manipulation
+
+**Purpose:** Determine whether animals were comparable before the experiment and confirm that the feeding manipulation produced the intended difference in energetic state.
+
+**Approach:** All four randomized treatment groups are compared for initial SVL, initial body mass, and original tail length. Pre-autotomy percent mass lost is then compared between High Diet/AdLib and Low Diet/Restricted animals.
+
+**Result/Decision:** Initial size measures did not show evidence of meaningful pre-existing treatment differences. The feeding manipulation successfully altered energetic state: restricted females lost significantly more body mass before autotomy than ad libitum-fed females. Pre-autotomy percent mass loss is retained as the manipulation check and prospective energetic-state measure.
+
+```{r baseline-data}
+pre_diet <- diet %>% filter(Week==-4)
+diet_preautotomy <- diet %>% filter(Week==-1)
+```
+
+```{r baseline-models}
+model_baseline_svl  <- lm(SVL  ~ Treatment, data=pre_diet)
+model_baseline_mass <- lm(Mass ~ Treatment, data=pre_diet)
+model_baseline_tail <- lm(Tail ~ Treatment, data=pre_diet)
+
+anova(model_baseline_svl);  summary(model_baseline_svl)
+anova(model_baseline_mass); summary(model_baseline_mass)
+anova(model_baseline_tail); summary(model_baseline_tail)
+
+model_diet_loss <- lm(Perc_WL ~ Diet, data=diet_preautotomy)
+anova(model_diet_loss); summary(model_diet_loss)
+
+diet_preautotomy %>% group_by(Diet) %>%
+  summarise(n=sum(!is.na(Perc_WL)), mean=mean(Perc_WL,na.rm=TRUE),
+            sd=sd(Perc_WL,na.rm=TRUE), min=min(Perc_WL,na.rm=TRUE),
+            max=max(Perc_WL,na.rm=TRUE), .groups="drop")
+```
+
+### Primary analysis: concurrent energetic state and regeneration
+
+**Purpose:** Test whether the association between energetic state and cumulative tail regeneration changes as regeneration proceeds.
+
+**Approach:** Cumulative percent regeneration is modeled as a function of Week, concurrent percent body-mass loss, and their interaction, with Animal ID included as a random intercept to account for repeated measurements within individuals. Week-specific slopes are estimated with `emtrends`. Original tail length is not included because percent regeneration already standardizes regenerated length by original tail length.
+
+**Result/Decision:** Regeneration increased strongly across the regeneration period (Week: F = 616.35, p < 0.001). There was a significant Week × percent-body-mass-loss interaction (F = 8.62, p = 0.0035), indicating that the concurrent association between body-mass loss and regeneration became increasingly negative over time. Week-specific slopes were not different from zero early in regeneration, but became negative later in the experiment (Week 5: p = 0.067; Week 6: p = 0.018; Week 7: p = 0.007; Week 8: p = 0.004). Thus, greater concurrent body-mass loss was increasingly associated with less cumulative regeneration as regeneration progressed. These week-specific slopes are post hoc estimates from the mixed-effects model and are interpreted in the context of the significant overall interaction.
+
+```{r concurrent-overall}
+model_concurrent <- lmerTest::lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss +
+    (1 | Animal_ID),
+  data = data,
+  REML = TRUE
+)
+
+summary(model_concurrent)
+
+lme4::isSingular(
+  model_concurrent,
+  tol = 1e-4
+)
+
+lme4::VarCorr(model_concurrent)
+
+anova(
+  model_concurrent,
+  type = 3
+)
+
+concurrent_slopes <- emmeans::emtrends(
+  model_concurrent,
+  ~ Week,
+  var = "Perc.WeightLoss",
+  at = list(Week = 1:8)
+)
+
+concurrent_slopes_df <- as.data.frame(
+  summary(concurrent_slopes, infer = TRUE)
+)
+
+concurrent_slopes_df
+```
+
+### IGF modification of the concurrent association
+
+**Purpose:** Test whether IGF1 or IGF2 modifies the relationship between concurrent energetic state and regeneration.
+
+**Approach:** Only Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2 animals are included. Cumulative percent regeneration is modeled as a function of Week, concurrent percent body-mass loss, supplementation, and their interactions, with Animal ID included as a random intercept. Week-specific energetic-state slopes and Tukey-adjusted pairwise contrasts are estimated directly from the fitted mixed-effects model.
+
+**Result/Decision:** The Week × percent-body-mass-loss × supplementation interaction tests whether supplementation modifies the energetic-state/regeneration relationship across the regeneration period.
+
+```{r concurrent-igf}
+model_concurrent_igf <- lmerTest::lmer(
+  Perc.Regeneration ~
+    Week * Perc.WeightLoss * Supplementation +
+    (1 | Animal_ID),
+  data = igf_data,
+  REML = TRUE
+)
+
+summary(model_concurrent_igf)
+
+lme4::isSingular(
+  model_concurrent_igf,
+  tol = 1e-4
+)
+
+lme4::VarCorr(model_concurrent_igf)
+
+anova(
+  model_concurrent_igf,
+  type = 3
+)
+
+concurrent_igf_slopes <- emmeans::emtrends(
+  model_concurrent_igf,
+  ~ Supplementation | Week,
+  var = "Perc.WeightLoss",
+  at = list(Week = 1:8)
+)
+
+concurrent_igf_slopes_df <- as.data.frame(
+  summary(concurrent_igf_slopes, infer = TRUE)
+)
+
+concurrent_igf_slopes_df
+
+concurrent_igf_contrasts <- pairs(
+  concurrent_igf_slopes,
+  adjust = "tukey"
+)
+
+concurrent_igf_contrasts_df <- as.data.frame(
+  concurrent_igf_contrasts
+)
+
+concurrent_igf_contrasts_df
+
+# Pull IGF2 vs Vehicle contrasts and create significance labels
+igf2_vehicle_sig <- concurrent_igf_contrasts_df %>%
+  filter(
+    grepl("Vehicle - IGF2|IGF2 - Vehicle", contrast)
+  ) %>%
+  mutate(
+    sig = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.10  ~ "†",
+      TRUE            ~ ""
+    )
+  )
+
+
+```
+
+### Manuscript-facing statistical summary
+
+The tables below extract the statistics directly from the fitted models so that the values used in the manuscript remain synchronized with the final analysis code.
+
+```{r manuscript-primary-summary, echo=FALSE}
+diet_aov <- anova(model_diet_loss)
+concurrent_aov <- anova(model_concurrent, type=3)
+igf_aov <- anova(model_concurrent_igf, type=3)
+
+primary_results_table <- tibble::tibble(
+  Analysis = c(
+    "Dietary manipulation",
+    "Concurrent energetic state",
+    "IGF modification of concurrent association"
+  ),
+  `Effect/test` = c(
+    "Diet",
+    "Week × percent body-mass loss",
+    "Week × percent body-mass loss × supplementation"
+  ),
+  F = c(
+    unname(diet_aov[1, "F value"]),
+    unname(concurrent_aov["Week:Perc.WeightLoss", "F value"]),
+    unname(igf_aov["Week:Perc.WeightLoss:Supplementation", "F value"])
+  ),
+  `df numerator` = c(
+    unname(diet_aov[1, "Df"]),
+    unname(concurrent_aov["Week:Perc.WeightLoss", "NumDF"]),
+    unname(igf_aov["Week:Perc.WeightLoss:Supplementation", "NumDF"])
+  ),
+  `df denominator` = c(
+    unname(diet_aov[2, "Df"]),
+    unname(concurrent_aov["Week:Perc.WeightLoss", "DenDF"]),
+    unname(igf_aov["Week:Perc.WeightLoss:Supplementation", "DenDF"])
+  ),
+  p = c(
+    unname(diet_aov[1, "Pr(>F)"]),
+    unname(concurrent_aov["Week:Perc.WeightLoss", "Pr(>F)"]),
+    unname(igf_aov["Week:Perc.WeightLoss:Supplementation", "Pr(>F)"])
+  )
+) %>%
+  mutate(
+    F = round(F, 2),
+    `df denominator` = round(`df denominator`, 2),
+    p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))
+  )
+
+knitr::kable(
+  primary_results_table,
+  caption = "Primary statistical results for manuscript reporting."
+)
+```
+
+```{r manuscript-igf-pairwise-summary, echo=FALSE}
+igf_pairwise_table <- concurrent_igf_contrasts_df %>%
+  dplyr::select(Week, contrast, estimate, SE, df, p.value) %>%
+  mutate(
+    estimate = round(estimate, 3),
+    SE = round(SE, 3),
+    df = round(df, 1),
+    p.value = ifelse(p.value < .001, "<0.001", sprintf("%.3f", p.value))
+  )
+
+knitr::kable(
+  igf_pairwise_table,
+  caption = "Tukey-adjusted pairwise contrasts of concurrent energetic-state slopes among supplementation groups by week."
+)
+```
+
+# Publication Figures
+
+Code used to generate the manuscript figures and their individual publication panels.
+
+### Figure 1: dietary manipulation and concurrent association
+
+**Purpose:** Generate the panels showing the dietary manipulation, regeneration through time, and the overall concurrent energetic-state/regeneration relationship.
+
+**Approach:** Panel A displays pre-autotomy percent body-mass loss by diet. Panel B displays descriptive percent-regeneration trajectories for High versus Low Diet animals. The remaining panels visualize week-specific energetic-state slopes from the primary concurrent model and the model-predicted relationship at Week 6.
+
+**Result/Decision:** Figure 1 shows the dietary manipulation, regeneration across the experiment, and the changing concurrent association between body-mass loss and regeneration. The energetic-state slope became progressively more negative across the regeneration period, consistent with the significant Week × percent-body-mass-loss interaction (F = 8.62, p = 0.0035). The Week 6 popout illustrates the negative model-predicted relationship at a representative later time point, when greater body-mass loss was associated with less cumulative regeneration (slope = -0.101, p = 0.018). Symbols on the slope panel indicate whether each week-specific slope differs from zero († p < 0.10, * p < 0.05, ** p < 0.01, *** p < 0.001). The pooled Low Diet trajectory includes Vehicle, IGF1, and IGF2 animals and is descriptive; it should not be interpreted as an isolated causal effect of dietary restriction after supplementation begins.
+
+```{r figure1}
+fig1a_data <- diet_preautotomy %>%
+  mutate(Diet_display=factor(Diet,levels=c("Adlib","DR"),
+                             labels=c("High Diet","Low Diet")))
+fig1a <- ggplot(fig1a_data,aes(Diet_display,Perc_WL)) +
+  geom_violin(fill="grey80",trim=FALSE) +
+  geom_boxplot(width=.12,outlier.shape=NA,fill="white") +
+  geom_jitter(width=.08,shape=21,fill="white",size=1.8,alpha=.8) +
+  labs(title="Dietary restriction increased mass loss",x="Diet treatment",
+       y="Percent body-mass loss") + theme_classic(base_size=12)
+
+regen_plot_data <- data %>%
+  mutate(
+    Diet_plot = case_when(
+      Treatment == "AdLib" ~ "High Diet",
+      Treatment %in% c("DR", "DR.IGF1", "DR.IGF2") ~ "Low Diet",
+      TRUE ~ NA_character_
+    ),
+    Diet_plot = factor(
+      Diet_plot,
+      levels = c("High Diet", "Low Diet")
+    )
+  )
+
+fig1b_data <- data %>%
+  mutate(
+    Diet_display = case_when(
+      Treatment == "AdLib" ~ "High Diet",
+      Treatment %in% c("DR", "DR.IGF1", "DR.IGF2") ~ "Low Diet",
+      TRUE ~ NA_character_
+    ),
+    Diet_display = factor(
+      Diet_display,
+      levels = c("High Diet", "Low Diet")
+    )
+  )
+
+fig1b <- ggplot(
+  fig1b_data,
+  aes(
+    x = Week,
+    y = Perc.Regeneration,
+    group = Diet_display,
+    shape = Diet_display,
+    linetype = Diet_display
+  )
+) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 1.1,
+    color = "black"
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 3,
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = .15,
+    color = "black"
+  ) +
+  labs(
+    title = "Regeneration across the experiment",
+    x = "Week",
+    y = "Percent regeneration",
+    shape = "Diet",
+    linetype = "Diet"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+  legend.position = "bottom"
+) +
+guides(
+  shape = guide_legend(nrow = 1),
+  linetype = guide_legend(nrow = 1)
+)
+
+
+concurrent_slopes_df <- as.data.frame(
+  summary(concurrent_slopes, infer = TRUE)
+) %>%
+  mutate(
+    sig = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.10  ~ "†",
+      TRUE            ~ ""
+    )
+  )
+
+fig1c <- ggplot(
+  concurrent_slopes_df,
+  aes(
+    x = Week,
+    y = Perc.WeightLoss.trend
+  )
+) +
+  annotate(
+    "rect",
+    xmin = 5.5,
+    xmax = 6.5,
+    ymin = -Inf,
+    ymax = Inf,
+    fill = "grey90",
+    alpha = 0.7
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.5
+  ) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.15,
+    linewidth = 0.6
+  ) +
+  geom_point(
+    shape = 21,
+    fill = "grey50",
+    color = "grey30",
+    size = 3.5
+  ) +
+  geom_text(
+    aes(
+      y = lower.CL - 0.035,
+      label = sig
+    ),
+    fontface = "bold",
+    size = 4
+  ) +
+  scale_x_continuous(
+    breaks = c(2, 4, 6, 8)
+  ) +
+  labs(
+    title = "Energetic constraint strengthened over time",
+    subtitle = "Change in regeneration per 1% increase in body-mass loss",
+    x = "Week",
+    y = "Slope of regeneration\nvs. body-mass loss"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 11,
+      hjust = 0
+    ),
+    plot.subtitle = element_text(
+      size = 8.5,
+      hjust = 0
+    )
+  )
+
+
+# ------------------------------------------------------------
+# WEEK 6 POPOUT
+# Raw observations + model-predicted concurrent relationship
+# ------------------------------------------------------------
+
+week6 <- data %>%
+  filter(
+    Week == 6,
+    !is.na(Perc.WeightLoss),
+    !is.na(Perc.Regeneration)
+  )
+
+week6_grid <- data.frame(
+  Week = 6,
+  Perc.WeightLoss = seq(
+    min(week6$Perc.WeightLoss, na.rm = TRUE),
+    max(week6$Perc.WeightLoss, na.rm = TRUE),
+    length.out = 100
+  )
+)
+
+week6_grid$Predicted <- predict(
+  model_concurrent,
+  newdata = week6_grid,
+  re.form = NA
+)
+
+fig1_week6 <- ggplot() +
+  geom_point(
+    data = week6,
+    aes(
+      x = Perc.WeightLoss,
+      y = Perc.Regeneration
+    ),
+    shape = 21,
+    fill = "white",
+    color = "grey50",
+    size = 1.6,
+    stroke = 0.4,
+    alpha = 0.8
+  ) +
+  geom_line(
+    data = week6_grid,
+    aes(
+      x = Perc.WeightLoss,
+      y = Predicted
+    ),
+    color = "black",
+    linewidth = 0.9
+  ) +
+  labs(
+    title = "Relationship at Week 6",
+    subtitle = "Model prediction with individual observations",
+    x = "Percent body-mass loss",
+    y = "Percent regeneration"
+  ) +
+  theme_classic(base_size = 8) +
+  theme(
+    plot.background = element_rect(
+      fill = "grey90",
+      color = NA
+    ),
+    panel.background = element_rect(
+      fill = "grey90",
+      color = NA
+    ),
+    plot.title = element_text(
+      face = "bold",
+      size = 8
+    ),
+    plot.subtitle = element_text(
+      size = 6.5
+    ),
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 6)
+  )
+
+
+# Print each component in the RPubs document as well as exporting it below.
+fig1a
+fig1b
+fig1c
+fig1_week6
+
+# Panels are exported separately below for assembly in BioRender.
+ggsave(
+  "Figure1A_Diet_mass_loss.png",
+  fig1a,
+  width = 3.5, height = 3,
+  units = "in", dpi = 600, bg = "white"
+)
+
+ggsave(
+  "Figure1B_Diet_regeneration.png",
+  fig1b,
+  width = 4, height = 3,
+  units = "in", dpi = 600, bg = "white"
+)
+
+
+ggsave(
+  "Figure2_Concurrent_slopes.png",
+  fig1c,
+  width = 4.5, height = 3.2,
+  units = "in", dpi = 600, bg = "white"
+)
+
+ggsave(
+  "Figure2_Week6_popout.png",
+  fig1_week6,
+  width = 2.4, height = 2.6,
+  units = "in", dpi = 600, bg = "grey90"
+)
+```
+
+
+### Figure 3: IGF modification of the concurrent relationship
+
+**Purpose:** Visualize whether supplementation modifies the concurrent energetic-state/regeneration association.
+
+**Approach:** Week-specific slopes are estimated directly from the random-intercept IGF mixed model. The established Vehicle, IGF1, and IGF2 colors and point/error-bar style are retained.
+
+**Result/Decision:** Figure 3 is interpreted using the three-way interaction and Tukey-adjusted pairwise slope contrasts from the mixed model. A slope that differs from zero within a supplementation group is not, by itself, evidence that the group differs from Vehicle.
+
+```{r figure2-create-objects}
+igf_colors <- c(
+  "Vehicle" = "grey40",
+  "IGF1"    = "#E87722",
+  "IGF2"    = "#0C2340"
+)
+
+fig3_slopes <- ggplot(
+  concurrent_igf_slopes_df,
+  aes(Week, Perc.WeightLoss.trend, color = Supplementation)
+) +
+  annotate(
+  "rect",
+  xmin = 5.5,
+  xmax = 6.5,
+  ymin = -Inf,
+  ymax = Inf,
+  fill = "grey90",
+  alpha = 0.7
+) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = .15,
+    position = position_dodge(width = .25)
+  ) +
+  geom_point(size = 4, position = position_dodge(width = .25)) +
+  scale_color_manual(values = igf_colors) +
+  scale_x_continuous(breaks = 1:8) +
+  labs(
+    x = "Week",
+    y = "Slope of regeneration vs.\npercent mass lost",
+    color = "Supplementation"
+  ) +
+ geom_text(
+  data = igf2_vehicle_sig %>%
+    filter(sig != "") %>%
+    left_join(
+      concurrent_igf_slopes_df %>%
+        filter(Supplementation == "IGF2") %>%
+        dplyr::select(
+          Week,
+          igf2_slope = Perc.WeightLoss.trend
+        ),
+      by = "Week"
+    ) %>%
+    mutate(
+      label_y = igf2_slope + 0.315
+    ),
+  aes(
+    x = Week,
+    y = label_y,
+    label = sig
+  ),
+  inherit.aes = FALSE,
+  size = 4,
+  fontface = "bold"
+) +
+  
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom")
+
+fig3_slopes
+
+
+# ------------------------------------------------------------
+# FIGURE 3 POPOUT
+# Week 6 energetic-state relationship by supplementation
+# ------------------------------------------------------------
+
+week6_igf <- igf_data %>%
+  filter(
+    Week == 6,
+    !is.na(Perc.WeightLoss),
+    !is.na(Perc.Regeneration)
+  )
+
+# Create prediction grid for each supplementation group
+week6_igf_grid <- expand.grid(
+  Week = 6,
+  Perc.WeightLoss = seq(
+    min(week6_igf$Perc.WeightLoss, na.rm = TRUE),
+    max(week6_igf$Perc.WeightLoss, na.rm = TRUE),
+    length.out = 100
+  ),
+  Supplementation = factor(
+    c("Vehicle", "IGF1", "IGF2"),
+    levels = c("Vehicle", "IGF1", "IGF2")
+  )
+)
+
+week6_igf_grid$Predicted <- predict(
+  model_concurrent_igf,
+  newdata = week6_igf_grid,
+  re.form = NA
+)
+
+fig3_week6 <- ggplot() +
+  geom_point(
+    data = week6_igf,
+    aes(
+      x = Perc.WeightLoss,
+      y = Perc.Regeneration,
+      color = Supplementation
+    ),
+    size = 2,
+    alpha = 0.65
+  ) +
+  geom_line(
+    data = week6_igf_grid,
+    aes(
+      x = Perc.WeightLoss,
+      y = Predicted,
+      color = Supplementation
+    ),
+    linewidth = 1.2
+  ) +
+  scale_color_manual(values = igf_colors) +
+  labs(
+    title = "Relationship at Week 6",
+    x = "Percent body-mass loss",
+    y = "Percent regeneration",
+    color = "Supplementation"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 11
+    ),
+    legend.position = "none"
+  ) +
+  theme(
+  plot.title = element_text(
+    face = "bold",
+    size = 11
+  ),
+  legend.position = "none",
+  plot.background = element_rect(fill = "transparent", color = NA),
+  panel.background = element_rect(fill = "transparent", color = NA)
+)
+
+fig3_week6
+```
+
+```{r}
+# ============================================================
+# ADDITIONAL IGF FIGURE PANELS
+# ============================================================
+
+# ------------------------------------------------------------
+# A. CHANGE IN ENERGETIC-STATE SLOPE: WEEK 8 - WEEK 1
+# ------------------------------------------------------------
+
+# Pull the model-estimated slopes at Weeks 1 and 8
+delta_slopes <- concurrent_igf_slopes_df %>%
+  filter(Week %in% c(1, 8)) %>%
+  dplyr::select(
+    Week,
+    Supplementation,
+    slope = Perc.WeightLoss.trend
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = Week,
+    values_from = slope,
+    names_prefix = "Week_"
+  ) %>%
+  mutate(
+    delta_slope = Week_8 - Week_1
+  )
+
+delta_slopes
+
+fig3_delta <- ggplot(
+  delta_slopes,
+  aes(
+    x = Supplementation,
+    y = delta_slope,
+    fill = Supplementation
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.5
+  ) +
+  geom_col(
+    width = 0.65
+  ) +
+  scale_fill_manual(
+    values = igf_colors
+  ) +
+  labs(
+    x = "Supplementation",
+    y = expression(Delta*" slope")
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none"
+  )
+
+fig3_delta
+
+
+```
+
+```{r}
+# ------------------------------------------------------------
+# B. BOOTSTRAP DISTRIBUTION OF CHANGE IN SLOPE
+# Week 8 - Week 1
+# ------------------------------------------------------------
+
+set.seed(1234)
+
+# Function applied to each parametric bootstrap replicate
+boot_delta_fun <- function(fit) {
+
+  tr <- emmeans::emtrends(
+    fit,
+    ~ Supplementation | Week,
+    var = "Perc.WeightLoss",
+    at = list(Week = c(1, 8))
+  )
+
+  tr_df <- as.data.frame(tr) %>%
+    dplyr::select(
+      Week,
+      Supplementation,
+      slope = Perc.WeightLoss.trend
+    ) %>%
+    tidyr::pivot_wider(
+      names_from = Week,
+      values_from = slope,
+      names_prefix = "Week_"
+    ) %>%
+    mutate(
+      delta_slope = Week_8 - Week_1
+    )
+
+  # Preserve the treatment order
+  tr_df <- tr_df %>%
+    mutate(
+      Supplementation = factor(
+        Supplementation,
+        levels = c("Vehicle", "IGF1", "IGF2")
+      )
+    ) %>%
+    arrange(Supplementation)
+
+  tr_df$delta_slope
+}
+
+boot_delta <- lme4::bootMer(
+  model_concurrent_igf,
+  FUN = boot_delta_fun,
+  nsim = 1000,
+  type = "parametric",
+  use.u = FALSE,
+  seed = 1234
+)
+
+boot_delta_df <- as.data.frame(boot_delta$t)
+
+names(boot_delta_df) <- c(
+  "Vehicle",
+  "IGF1",
+  "IGF2"
+)
+
+boot_delta_long <- boot_delta_df %>%
+  mutate(
+    bootstrap = dplyr::row_number()
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(Vehicle, IGF1, IGF2),
+    names_to = "Supplementation",
+    values_to = "delta_slope"
+  ) %>%
+  mutate(
+    Supplementation = factor(
+      Supplementation,
+      levels = c("Vehicle", "IGF1", "IGF2")
+    )
+  )
+
+fig3_bootstrap <- ggplot(
+  boot_delta_long,
+  aes(
+    x = delta_slope,
+    fill = Supplementation,
+    color = Supplementation
+  )
+) +
+  geom_density(
+    alpha = 0.65,
+    linewidth = 0.8
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.5
+  ) +
+  scale_fill_manual(
+    values = igf_colors
+  ) +
+  scale_color_manual(
+    values = igf_colors
+  ) +
+  labs(
+    x = expression(Delta*" slope (Week 8 - Week 1)"),
+    y = "Density"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none"
+  )
+
+fig3_bootstrap
+
+```
+
+### Body-mass trajectory figure
+
+**Purpose:** Visualize body-mass change across the full experiment for all four treatment combinations.
+
+**Approach:** Pre-autotomy percent mass loss and regeneration-period percent mass loss are combined into one longitudinal plotting dataset. Individual trajectories are shown lightly, with group means overlaid using the same treatment palette as the other figures.
+
+**Result/Decision:** This figure provides descriptive context for body-mass change before and during regeneration. Post-autotomy values include the physical loss of tail tissue and should not be interpreted as a direct measure of whole-body energy balance.
+
+```{r body-mass-trajectory-figure}
+pre_traj <- diet %>%
+  filter(Week <= 0, !is.na(Perc_WL)) %>%
+  dplyr::select(Animal_ID, Week, Perc.WeightLoss = Perc_WL) %>%
+  left_join(
+    data %>% dplyr::select(Animal_ID, Treatment) %>% distinct(),
+    by = "Animal_ID"
+  )
+
+regen_traj <- data %>%
+  filter(Week > 0, !is.na(Perc.WeightLoss)) %>%
+  dplyr::select(Animal_ID, Week, Perc.WeightLoss, Treatment)
+
+trajectory_data <- bind_rows(pre_traj, regen_traj) %>%
+  mutate(
+    Group = case_when(
+      Treatment == "AdLib"   ~ "AdLib",
+      Treatment == "DR"      ~ "Vehicle",
+      Treatment == "DR.IGF1" ~ "IGF1",
+      Treatment == "DR.IGF2" ~ "IGF2"
+    ),
+    Group = factor(
+      Group,
+      levels = c("AdLib", "Vehicle", "IGF1", "IGF2")
+    )
+  )
+
+trajectory_colors <- c(
+  "AdLib"   = "grey70",
+  "Vehicle" = "grey40",
+  "IGF1"    = "#E87722",
+  "IGF2"    = "#0C2340"
+)
+
+body_mass_plot <- ggplot(
+  trajectory_data,
+  aes(Week, Perc.WeightLoss, color = Group)
+) +
+  geom_line(
+    aes(group = Animal_ID),
+    alpha = .12,
+    linewidth = .5
+  ) +
+  stat_summary(
+    aes(group = Group),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  stat_summary(
+    aes(group = Group),
+    fun = mean,
+    geom = "point",
+    size = 3
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey40"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dotted",
+    color = "grey40"
+  ) +
+  scale_color_manual(
+    values = trajectory_colors,
+    labels = c(
+      "AdLib"   = "High Diet + Vehicle",
+      "Vehicle" = "Low Diet + Vehicle",
+      "IGF1"    = "Low Diet + IGF1",
+      "IGF2"    = "Low Diet + IGF2"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = c(-4, -2, -1, 0, 1:8)
+  ) +
+  labs(
+    x = "Week",
+    y = "Percent body-mass loss",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "bottom"
+  )+
+  guides(
+  color = guide_legend(
+    nrow = 2,
+    byrow = TRUE
+  )
+) 
+
+body_mass_plot
+```
+
+
+### Export publication figures
+
+**Purpose:** Export the individual publication panels at the dimensions used to rebuild the manuscript figures.
+
+**Approach:** Each figure object is exported separately at the specified width, height, resolution, and background so the panels can be reassembled without changing the underlying graphics.
+
+**Result/Decision:** These files are the source panels for figure assembly. The existing export dimensions are intentionally retained.
+
+```{r, echo=F, print= F}
+# ============================================================
+# FIGURE 1
+# A = diet manipulation
+# B = regeneration trajectory
+# C = energetic-state/regeneration association through time
+#     with Week 6 model-based popout
+# ============================================================
+
+library(tidyverse)
+library(emmeans)
+library(patchwork)
+
+# Body mass immediately before autotomy
+diet_preautotomy <- diet %>%
+  filter(Week == -1)
+
+# Check
+table(diet_preautotomy$Diet)
+fig1a_data <- diet_preautotomy %>%
+  mutate(
+    Diet_display = factor(
+      Diet,
+      levels = c("AdLib", "Restricted"),
+      labels = c("High", "Low")
+    )
+  )
+
+
+# ------------------------------------------------------------
+# PANEL A
+# Dietary restriction increased body-mass loss
+# ------------------------------------------------------------
+
+fig1a_data <- diet_preautotomy %>%
+  mutate(
+    Diet_display = factor(
+      Diet,
+      levels = c("AdLib", "Restricted"),
+      labels = c("High", "Low")
+    )
+  )
+
+fig1a <- ggplot(
+  fig1a_data,
+  aes(x = Diet_display, y = Perc_WL)
+) +
+  geom_violin(
+    fill = "grey80",
+    color = "black",
+    trim = FALSE,
+    linewidth = 0.5
+  ) +
+  geom_boxplot(
+    width = 0.10,
+    fill = "white",
+    outlier.shape = NA,
+    linewidth = 0.5
+  ) +
+  geom_jitter(
+    width = 0.08,
+    shape = 21,
+    fill = "white",
+    color = "grey40",
+    size = 1.4,
+    alpha = 0.75
+  ) +
+  labs(
+    title = "Dietary restriction increased mass loss",
+    x = "Diet",
+    y = "Percent body-mass loss"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 10,
+      hjust = 0
+    )
+  )
+
+
+# ------------------------------------------------------------
+# PANEL B
+# Regeneration across the experiment
+#
+# IMPORTANT:
+# This reproduces the High vs Low diet presentation in the
+# uploaded figure.
+# ------------------------------------------------------------
+
+fig1b_data <- data %>%
+  mutate(
+    Diet_display = factor(
+      Diet,
+      levels = c("AdLib", "Restricted"),
+      labels = c("High", "Low")
+    )
+  )
+
+fig1b <- ggplot(
+  fig1b_data,
+  aes(
+    x = Week,
+    y = Perc.Regeneration,
+    group = Diet_display,
+    shape = Diet_display,
+    linetype = Diet_display
+  )
+) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.9,
+    color = "black"
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 2.5,
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.12,
+    linewidth = 0.5,
+    color = "black"
+  ) +
+  scale_x_continuous(
+    breaks = c(0, 2, 4, 6, 8),
+    limits = c(0, 8)
+  ) +
+  labs(
+    title = "Regeneration across the experiment",
+    x = "Week",
+    y = "Percent regeneration",
+    shape = "Diet",
+    linetype = "Diet"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 11,
+      hjust = 0
+    ),
+    legend.position = "bottom",
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
+  )
+
+```
+
+
+
+```{r, echo=F, print= F}
+# ----------------------------
+# FIGURE 2 — overall concurrent association
+# ----------------------------
+
+ggsave(
+  filename = "Figure2_Concurrent_slopes.png",
+  plot = fig1c,
+  width = 4.5,
+  height = 3.2,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+# ----------------------------
+# FIGURE 3 — IGF modification
+# ----------------------------
+
+ggsave(
+  filename = "Figure3_IGF_slopes.png",
+  plot = fig3_slopes,
+  width = 7,
+  height = 4,
+  units = "in",
+  dpi = 600,
+  bg = "transparent"
+)
+
+# ----------------------------
+# BODY-MASS TRAJECTORY FIGURE
+# ----------------------------
+
+ggsave(
+  filename = "Body_mass_trajectory.png",
+  plot = body_mass_plot,
+  width = 6,
+  height = 4.5,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+# ----------------------------
+# Week 6 POPOUT IGF Effects
+# ----------------------------
+
+ggsave(
+  "Figure3_Week6_popout.png",
+  fig3_week6,
+  width = 2.8,
+  height = 3.5,
+  units = "in",
+  dpi = 600,
+  bg = "transparent"
+
+)
+
+ggsave(
+  "Figure3B_Delta_slope.png",
+  fig3_delta,
+  width = 3.2,
+  height = 3.0,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  "Figure3C_Bootstrap_delta_slope.png",
+  fig3_bootstrap,
+  width = 3.5,
+  height = 3.0,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+```
+
+# Validation
+
+Sensitivity and temporal checks used to evaluate whether the manuscript conclusions are robust to alternative definitions, outcomes, and potential confounds.
+
+### Temporal specificity of the energetic-state association
+
+The primary concurrent analysis cannot determine whether energetic state precedes regenerative performance. This section therefore asks the same biological question using energetic-state measures that occur **before** the regenerative response. These analyses are complementary, not interchangeable.
+
+These analyses evaluate whether the association is also detectable when energetic state **precedes** the regenerative response. They distinguish a pre-existing/prospective energetic effect from a contemporaneous association that emerges during regeneration.
+
+#### Pre-autotomy energetic state
+
+**Purpose:** Test whether energetic state established before autotomy predicts the subsequent regeneration trajectory and whether later IGF supplementation modifies that prospective relationship.
+
+**Approach:** A single pre-autotomy percent-mass-loss value is calculated for each animal from Week -4 to Week -1. This value precedes tail autotomy and IGF administration, avoiding the contribution of physically removed tail tissue to the energetic-state measure. The overall prospective relationship is evaluated in all animals, and IGF modification is evaluated within the restricted-diet comparison.
+
+**Result/Decision:** The prospective pre-autotomy analyses did not provide strong evidence that pre-existing mass loss predicts the later regeneration trajectory or that IGF clearly modifies that prospective relationship. This analysis is retained as temporal validation and supports interpreting the primary result as an association with ongoing energetic state during regeneration rather than a simple pre-existing energetic deficit that determines later regeneration.
+
+```{r preautotomy-data}
+pre_autotomy_state <- diet %>%
+  filter(Week %in% c(-4,-1)) %>%
+  dplyr::select(Animal_ID, Diet, Week, Mass) %>%
+  mutate(Timepoint=case_when(Week==-4 ~ "Mass_WeekMinus4",
+                             Week==-1 ~ "Mass_WeekMinus1")) %>%
+  dplyr::select(Animal_ID,Diet,Timepoint,Mass) %>%
+  pivot_wider(names_from=Timepoint, values_from=Mass) %>%
+  mutate(PreAutotomy_MassLoss=((Mass_WeekMinus4-Mass_WeekMinus1)/Mass_WeekMinus4)*100)
+
+regen_preautotomy <- data %>%
+  left_join(pre_autotomy_state %>% dplyr::select(Animal_ID,PreAutotomy_MassLoss),
+            by="Animal_ID")
+
+regen_preautotomy_igf <- regen_preautotomy %>%
+  filter(Diet=="Restricted") %>%
+  mutate(Supplementation=case_when(Treatment=="DR" ~ "Vehicle",
+                                   Treatment=="DR.IGF1" ~ "IGF1",
+                                   Treatment=="DR.IGF2" ~ "IGF2"),
+         Supplementation=factor(Supplementation,levels=c("Vehicle","IGF1","IGF2")))
+
+pre_autotomy_state %>% group_by(Diet) %>%
+  summarise(n=sum(!is.na(PreAutotomy_MassLoss)),
+            mean=mean(PreAutotomy_MassLoss,na.rm=TRUE),
+            sd=sd(PreAutotomy_MassLoss,na.rm=TRUE),
+            min=min(PreAutotomy_MassLoss,na.rm=TRUE),
+            max=max(PreAutotomy_MassLoss,na.rm=TRUE), .groups="drop")
+```
+
+```{r preautotomy-models}
+model_preautotomy <- lmerTest::lmer(
+  Perc.Regeneration ~ Week * PreAutotomy_MassLoss + (0 + Week | Animal_ID),
+  data=regen_preautotomy)
+summary(model_preautotomy); anova(model_preautotomy,type=3)
+
+preautotomy_slopes <- emmeans::emtrends(
+  model_preautotomy, ~ Week, var="PreAutotomy_MassLoss", at=list(Week=1:8))
+summary(preautotomy_slopes,infer=TRUE)
+
+model_preautotomy_igf <- lmerTest::lmer(
+  Perc.Regeneration ~ Week * PreAutotomy_MassLoss * Supplementation + (0 + Week | Animal_ID),
+  data=regen_preautotomy_igf)
+summary(model_preautotomy_igf); anova(model_preautotomy_igf,type=3)
+
+preautotomy_igf_slopes <- emmeans::emtrends(
+  model_preautotomy_igf, ~ Supplementation | Week, var="PreAutotomy_MassLoss",
+  at=list(Week=1:8))
+summary(preautotomy_igf_slopes,infer=TRUE)
+pairs(preautotomy_igf_slopes,adjust="tukey")
+```
+
+#### Lagged energetic state predicting subsequent regeneration
+
+**Purpose:** Test whether energetic state at the beginning of an interval predicts the amount of new regeneration produced during the following interval.
+
+**Approach:** Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2 animals with consecutive observations are arranged longitudinally. Percent body-mass loss at the beginning of an interval is paired with the subsequent increment in absolute regeneration and percent regeneration, giving the energetic-state measure temporal precedence over the response interval.
+
+**Result/Decision:** The lagged analysis did not provide strong evidence that energetic state prospectively predicts the next increment of regeneration. Together with the pre-autotomy analysis, this indicates that the strongest energetic-state/regeneration relationship is concurrent rather than clearly prospective.
+
+```{r lagged-data}
+lagged_data <- igf_data %>%
+  filter(Week %in% 1:8) %>%
+  arrange(Animal_ID,Week) %>%
+  group_by(Animal_ID) %>%
+  mutate(
+    Lagged_MassLoss=Perc.WeightLoss,
+    Next_Regeneration=lead(Regeneration),
+    Next_PercRegeneration=lead(Perc.Regeneration),
+    Next_Week=lead(Week),
+    Subsequent_Regeneration=Next_Regeneration-Regeneration,
+    Subsequent_PercRegeneration=Next_PercRegeneration-Perc.Regeneration
+  ) %>%
+  ungroup() %>%
+  filter(Next_Week-Week==1)
+
+lagged_data %>% count(Week,Next_Week)
+lagged_data %>% group_by(Animal_ID) %>% summarise(n_intervals=n(),.groups="drop") %>% count(n_intervals)
+```
+
+
+### Alternative regeneration metrics
+
+**Purpose:** Determine whether the conclusions depend on how regeneration is quantified.
+
+**Approach:** The restricted-diet IGF comparison is repeated using absolute regenerated tail length and weekly regeneration rate. Original tail length is included for outcomes expressed in absolute length.
+
+**Result/Decision:** These models are retained as sensitivity analyses because percent regeneration, absolute tissue growth, and weekly rate describe related but non-identical aspects of regeneration. Agreement supports robustness; differences are interpreted as outcome-specific rather than used to replace the primary response.
+
+```{r alternative-responses}
+model_absolute_length <- lmerTest::lmer(
+  Regeneration ~ Week*Perc.WeightLoss*Supplementation + Tail + (0 + Week | Animal_ID),
+  data=igf_data)
+summary(model_absolute_length); anova(model_absolute_length,type=3)
+
+model_weekly_rate <- lmerTest::lmer(
+  Rate_Reg ~ Week*Perc.WeightLoss*Supplementation + Tail + (0 + Week | Animal_ID),
+  data=igf_data)
+summary(model_weekly_rate); anova(model_weekly_rate,type=3)
+```
+
+### Original tail-length sensitivity
+
+**Purpose:** Determine whether explicitly controlling for original tail length changes the energetic-state/IGF conclusions for percent regeneration.
+
+**Approach:** The primary restricted-diet percent-regeneration model is repeated with original tail length included as an additional covariate.
+
+**Result/Decision:** This is secondary because original tail length already contributes to the denominator of percent regeneration. The no-Tail model remains the preferred percent-regeneration analysis; this model tests sensitivity to explicit adjustment for initial tail length.
+
+```{r tail-sensitivity}
+model_tail_sensitivity <- lmerTest::lmer(
+  Perc.Regeneration ~ Week*Perc.WeightLoss*Supplementation + Tail + (0 + Week | Animal_ID),
+  data=igf_data)
+summary(model_tail_sensitivity); anova(model_tail_sensitivity,type=3)
+```
+
+### IGF dose sensitivity
+
+**Purpose:** Test whether variation in administered IGF dose explains differences between IGF1 and IGF2 animals.
+
+**Approach:** Only IGF-treated restricted animals are included because Vehicle animals received no IGF dose. The IGF model is fit with and without Dose and compared using AIC, and the model including Dose is examined directly.
+
+**Result/Decision:** Among IGF-treated animals, adding administered dose did not improve model fit (AIC = 1256.41 with dose vs. 1254.74 without dose), and dose was not independently associated with regeneration (p = .552). The Week × energetic state × IGF-type interaction remained near the conventional significance threshold after adjustment for dose (p = .051). Accordingly, dose was not included in the primary models.
+
+```{r dose-sensitivity}
+igf_dose_data <- igf_data %>%
+  filter(Supplementation %in% c("IGF1","IGF2")) %>%
+  group_by(Animal_ID) %>% fill(Dose,.direction="downup") %>% ungroup() %>%
+  mutate(Supplementation=droplevels(Supplementation))
+
+model_dose0 <- lmerTest::lmer(
+  Perc.Regeneration ~ Week*Perc.WeightLoss*Supplementation + (0 + Week | Animal_ID),
+  data=igf_dose_data, REML=FALSE)
+model_dose <- lmerTest::lmer(
+  Perc.Regeneration ~ Week*Perc.WeightLoss*Supplementation + Dose + (0 + Week | Animal_ID),
+  data=igf_dose_data, REML=FALSE)
+AIC(model_dose0,model_dose)
+summary(model_dose); anova(model_dose,type=3)
+```
+
+### Post-autotomy body-mass trajectories
+
+**Purpose:** Test whether IGF supplementation itself produced different post-treatment body-mass trajectories that could provide an alternative explanation for the regeneration results.
+
+**Approach:** Restricted + Vehicle, Restricted + IGF1, and Restricted + IGF2 animals are compared for percent change in body mass relative to the Week -1 pre-autotomy measurement. Week-specific trajectory slopes are estimated and compared among supplementation groups.
+
+**Result/Decision:** Body-mass trajectories did not differ significantly among supplementation groups (Week × Supplementation, p = 0.23), and pairwise trajectory slopes were nonsignificant. There is no evidence that IGF2 produced a uniquely different post-treatment body-mass trajectory. Because the baseline precedes autotomy, post-autotomy mass change includes physical tail removal and is not interpreted as a direct measure of whole-body energy balance.
+
+```{r post-igf-mass}
+pre_autotomy_mass <- diet %>% filter(Week==-1) %>%
+  dplyr::select(Animal_ID,PreAutotomy_Mass=Mass) %>% distinct()
+
+post_igf_mass <- igf_data %>%
+  filter(Week %in% c(2,4,6,8), !is.na(Mass)) %>%
+  left_join(pre_autotomy_mass,by="Animal_ID") %>%
+  mutate(Percent_Mass_Change=((Mass-PreAutotomy_Mass)/PreAutotomy_Mass)*100)
+
+model_post_igf_mass <- lmerTest::lmer(
+  Percent_Mass_Change ~ Week*Supplementation + (1|Animal_ID), data=post_igf_mass)
+summary(model_post_igf_mass); anova(model_post_igf_mass,type=3)
+
+post_mass_slopes <- emmeans::emtrends(model_post_igf_mass,~Supplementation,var="Week")
+summary(post_mass_slopes,infer=TRUE)
+pairs(post_mass_slopes,adjust="tukey")
+```
+\n### Manuscript-facing validation summary\n\n```{r manuscript-validation-summary, echo=FALSE}\npre_aov <- anova(model_preautotomy, type=3)\npre_igf_aov <- anova(model_preautotomy_igf, type=3)\nabs_aov <- anova(model_absolute_length, type=3)\nrate_aov <- anova(model_weekly_rate, type=3)\ntail_aov <- anova(model_tail_sensitivity, type=3)\ndose_aov <- anova(model_dose, type=3)\npostmass_aov <- anova(model_post_igf_mass, type=3)\ndose_aic <- AIC(model_dose0, model_dose)\n\nvalidation_results_table <- tibble::tibble(\n  Analysis = c(\n    "Pre-autotomy energetic state",\n    "Pre-autotomy energetic state × IGF",\n    "Absolute regenerated length",\n    "Weekly regeneration rate",\n    "Original tail-length sensitivity",\n    "IGF dose",\n    "Dose-adjusted IGF modification",\n    "Post-autotomy body-mass trajectory"\n  ),\n  `Key test` = c(\n    "Week × pre-autotomy mass loss",\n    "Week × pre-autotomy mass loss × supplementation",\n    "Week × mass loss × supplementation",\n    "Week × mass loss × supplementation",\n    "Week × mass loss × supplementation",\n    "Dose",\n    "Week × mass loss × supplementation",\n    "Week × supplementation"\n  ),\n  F = c(\n    pre_aov["Week:PreAutotomy_MassLoss", "F value"],\n    pre_igf_aov["Week:PreAutotomy_MassLoss:Supplementation", "F value"],\n    abs_aov["Week:Perc.WeightLoss:Supplementation", "F value"],\n    rate_aov["Week:Perc.WeightLoss:Supplementation", "F value"],\n    tail_aov["Week:Perc.WeightLoss:Supplementation", "F value"],\n    dose_aov["Dose", "F value"],\n    dose_aov["Week:Perc.WeightLoss:Supplementation", "F value"],\n    postmass_aov["Week:Supplementation", "F value"]\n  ),\n  p = c(\n    pre_aov["Week:PreAutotomy_MassLoss", "Pr(>F)"],\n    pre_igf_aov["Week:PreAutotomy_MassLoss:Supplementation", "Pr(>F)"],\n    abs_aov["Week:Perc.WeightLoss:Supplementation", "Pr(>F)"],\n    rate_aov["Week:Perc.WeightLoss:Supplementation", "Pr(>F)"],\n    tail_aov["Week:Perc.WeightLoss:Supplementation", "Pr(>F)"],\n    dose_aov["Dose", "Pr(>F)"],\n    dose_aov["Week:Perc.WeightLoss:Supplementation", "Pr(>F)"],\n    postmass_aov["Week:Supplementation", "Pr(>F)"]\n  )\n) %>%\n  mutate(\n    F = round(F, 2),\n    p = ifelse(p < .001, "<0.001", sprintf("%.3f", p))\n  )\n\nknitr::kable(validation_results_table, caption = "Temporal and sensitivity analyses for manuscript reporting.")\n\ndose_aic_table <- dose_aic %>%\n  tibble::rownames_to_column("Model") %>%\n  dplyr::select(Model, df, AIC) %>%\n  mutate(AIC = round(AIC, 2))\n\nknitr::kable(dose_aic_table, caption = "AIC comparison for the IGF dose sensitivity analysis.")\n```\n
+# Exploration
+
+Additional model-structure and descriptive analyses used to understand the data, investigate reviewer questions, and guide final modeling decisions. These are separated from the primary published tests and formal sensitivity analyses.
+
+### Random-effects structure validation
+
+**Purpose:** Evaluate whether repeated measurements are adequately represented by animal-specific intercepts alone or whether animals also differ in their regeneration trajectories through time.
+
+**Approach:** Alternative random-effects structures are treated as model-structure checks for the longitudinal regeneration analyses. The comparison focuses on whether allowing animal-specific Week slopes changes model fit, singularity, or uncertainty around energetic-state interactions.
+
+**Result/Decision:** These checks document the model-selection process. Earlier comparisons indicated substantial among-animal variation in longitudinal regeneration trajectories, while intercept variance could approach zero in more flexible structures. These diagnostics are kept separate from the biological hypothesis tests.
+
+## Validation of the full regeneration period
+
+**Purpose:** Confirm that the longitudinal conclusions are not artifacts of restricting the analysis to an early portion of regeneration and evaluate repeated-measures behavior across the full dataset.
+
+**Approach:** Early-week and full-period versions of the restricted-diet IGF model are fit, within-animal repeatability is summarized, and residual magnitude is compared across weeks.
+
+**Result/Decision:** These analyses are retained as model validation because later observations are biologically important and the full eight-week period captures the complete regeneration trajectory. They assess whether inclusion of the later weeks introduces evidence of model instability or whether the full regeneration period can be defensibly retained.
+
+```{r full-period-validation}
+model_early_weeks <- lmerTest::lmer(
+  Perc.Regeneration ~ Week*Perc.WeightLoss*Supplementation + (0 + Week | Animal_ID),
+  data=igf_data %>% filter(Week<=4))
+model_full_weeks <- lmerTest::lmer(
+  Perc.Regeneration ~ Week*Perc.WeightLoss*Supplementation + (0 + Week | Animal_ID),
+  data=igf_data)
+summary(model_early_weeks); anova(model_early_weeks,type=3)
+summary(model_full_weeks); anova(model_full_weeks,type=3)
+performance::icc(model_full_weeks)
+
+residual_data <- data.frame(
+  Week=model.frame(model_full_weeks)$Week,
+  residual=residuals(model_full_weeks)) %>%
+  mutate(absolute_residual=abs(residual))
+model_residual_variation <- lm(absolute_residual ~ factor(Week),data=residual_data)
+anova(model_residual_variation)
+```
+
+### Body-mass trajectories across the experiment
+
+**Purpose:** Provide a descriptive check of individual and treatment-level body-mass trajectories across the full experiment.
+
+**Approach:** Pre-autotomy and regeneration-period percent-mass-loss values are combined by animal and treatment. The same treatment palette is used across figures.
+
+**Result/Decision:** This descriptive dataset supports visualization of the timing and variability of body-mass change. It is not used as a direct measure of whole-body energy balance after autotomy.
+
+```{r mass-trajectory-figure}
+pre_traj <- diet %>% filter(Week<=0,!is.na(Perc_WL)) %>%
+  dplyr::select(Animal_ID,Week,Perc.WeightLoss=Perc_WL) %>%
+  left_join(data %>% dplyr::select(Animal_ID,Treatment) %>% distinct(),by="Animal_ID")
+regen_traj <- data %>% filter(Week>0,!is.na(Perc.WeightLoss)) %>%
+  dplyr::select(Animal_ID,Week,Perc.WeightLoss,Treatment)
+trajectory_data <- bind_rows(pre_traj,regen_traj) %>%
+  mutate(Group=case_when(Treatment=="AdLib"~"AdLib",Treatment=="DR"~"Vehicle",
+                         Treatment=="DR.IGF1"~"IGF1",Treatment=="DR.IGF2"~"IGF2"))
+```
+
+### Sample sizes
+
+**Purpose:** Document the number of unique animals contributing to the main concurrent, IGF, and lagged analyses.
+
+**Approach:** Sample sizes are counted by unique Animal_ID rather than by repeated observations. Counts are shown separately for the full experiment, restricted-diet IGF comparison, and lagged dataset.
+
+**Result/Decision:** These counts make the transition between the full four-group experiment and restricted-diet IGF analyses explicit and prevent repeated observations from being mistaken for independent sample size.
+
+```{r sample-sizes}
+data %>% filter(!is.na(Perc.Regeneration),!is.na(Perc.WeightLoss)) %>%
+  distinct(Animal_ID,Treatment) %>% count(Treatment)
+igf_data %>% filter(!is.na(Perc.Regeneration),!is.na(Perc.WeightLoss)) %>%
+  distinct(Animal_ID,Supplementation) %>% count(Supplementation)
+lagged_data %>% distinct(Animal_ID,Supplementation) %>% count(Supplementation)
+```
+
+### Session information
+
+**Purpose:** Record the software environment used to run the reproducibility file.
+
+**Approach:** R session and package-version information are printed at the end of the document.
+
+**Result/Decision:** Session information is retained to support reproducibility.
+
+```{r session-information}
+sessionInfo()
+```
+
+
